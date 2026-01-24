@@ -1,19 +1,4 @@
-#include "clay.h"
-#include <SDL3/SDL.h>
-#include <SDL3/SDL_main.h>
-#include <SDL3_image/SDL_image.h>
-#include <SDL3_ttf/SDL_ttf.h>
-
-typedef struct
-{
-	SDL_Renderer   *renderer;
-	TTF_TextEngine *textEngine;
-	TTF_Font      **fonts;
-} Clay_SDL3RendererData;
-
-/* Global for convenience. Even in 4K this is enough for smooth curves (low radius or rect size coupled with
- * no AA or low resolution might make it appear as jagged curves) */
-static int NUM_CIRCLE_SEGMENTS = 16;
+#include "clay_renderer_SDL3.h"
 
 // all rendering is performed by a single SDL call, avoiding multiple RenderRect + plumbing choice for circles.
 static void SDL_Clay_RenderFillRoundedRect(Clay_SDL3RendererData *rendererData, const SDL_FRect rect, const float cornerRadius, const Clay_Color _color)
@@ -172,7 +157,7 @@ static void SDL_Clay_RenderArc(Clay_SDL3RendererData *rendererData, const SDL_FP
 
 SDL_Rect currentClippingRectangle;
 
-static void SDL_Clay_RenderClayCommands(Clay_SDL3RendererData *rendererData, Clay_RenderCommandArray *rcommands)
+void SDL_Clay_RenderClayCommands(Clay_SDL3RendererData *rendererData, Clay_RenderCommandArray *rcommands)
 {
 	for (size_t i = 0; i < rcommands->length; i++)
 	{

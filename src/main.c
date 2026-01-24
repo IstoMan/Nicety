@@ -1,7 +1,5 @@
 #include "base.h"
-
 #include "application_core.h"
-
 #include "application_core.c"
 
 int main(void)

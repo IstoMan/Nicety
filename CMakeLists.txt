@@ -11,7 +11,7 @@ find_package(SDL3_image REQUIRED)
 find_package(SDL3_ttf REQUIRED)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(mupdf REQUIRED)
+pkg_check_modules(MUPDF REQUIRED mupdf)
 
 # Define source files
 file(GLOB_RECURSE SOURCES src/*.c)

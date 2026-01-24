@@ -1,6 +1,7 @@
 #define CLAY_IMPLEMENTATION
 #include "clay.h"
-#include "base.h"
+
+#include "nicety.h"
 #include "application_core.h"
 #include <stdbool.h>
 #include <stdlib.h>
@@ -20,13 +21,14 @@ int main(void)
 		return EXIT_FAILURE;
 	}
 
-	uint64_t   totalMemorySize = Clay_MinMemorySize();
-	Clay_Arena clayMemory      = {
-	         .memory   = malloc(totalMemorySize),
-	         .capacity = totalMemorySize};
+	Document doc;
+	int      err = init_document("resources/book.pdf", &doc);
+	if (err == 1)
+	{
+		return EXIT_FAILURE;
+	}
 
 	core_application_run(&core);
 
-	free(clayMemory.memory);
 	return EXIT_SUCCESS;
 }

@@ -1,5 +1,7 @@
 #pragma once
 #include <SDL3/SDL.h>
+#include "ui.h"
+#include "clay.h"
 
 typedef struct
 {
@@ -16,5 +18,5 @@ typedef struct
 } WindowSpecs;
 
 bool core_application_init(AppCore *app, WindowSpecs specs);
-void core_application_run(AppCore *app);
+void core_application_run(AppCore *app, create_ui layout_func);
 void application_cleanup(AppCore *core);

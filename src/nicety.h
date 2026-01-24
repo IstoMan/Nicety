@@ -1,4 +1,5 @@
 #pragma once
+#include "application_core.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -21,6 +22,7 @@ typedef struct
 typedef struct
 {
 	Bitmap page_bitmap;
+	void  *page_texture;        // texture data for any renderer (eg. SDL3, Raylib)
 	size_t index;
 } Page;
 
@@ -31,4 +33,5 @@ typedef struct
 	const char *file_path;
 } Document;
 
-int init_document(const char *file_path, Document *document);
+void init_page_texture(Page *page, AppCore core);
+int  init_document(const char *file_path, Document *document, AppCore core);

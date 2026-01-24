@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(nicety)
 
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -14,8 +14,8 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(MUPDF REQUIRED mupdf)
 
 # Define source files
-file(GLOB_RECURSE SOURCES src/*.c)
-file(GLOB_RECURSE HEADERS src/*.h)
+file(GLOB_RECURSE SOURCES src/*.c vendor/*.c)
+file(GLOB_RECURSE HEADERS src/*.h vendor/*.h)
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 

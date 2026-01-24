@@ -1,3 +1,6 @@
+#pragma once
+#include <SDL3/SDL.h>
+
 typedef struct
 {
 	SDL_Window   *window;
@@ -13,5 +16,5 @@ typedef struct
 } WindowSpecs;
 
 bool core_application_init(AppCore *app, WindowSpecs specs);
-void core_application_run(AppCore *app, uint32_t fps);
+void core_application_run(AppCore *app);
 void application_cleanup(AppCore *core);

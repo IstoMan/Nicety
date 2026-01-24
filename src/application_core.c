@@ -1,3 +1,5 @@
+#include "application_core.h"
+#include <stdio.h>
 
 void application_cleanup(AppCore *core)
 {
@@ -36,15 +38,13 @@ bool core_application_init(AppCore *app, WindowSpecs specs)
 	return is_initialized;
 }
 
-void core_application_run(AppCore *app, uint32_t fps)
+void core_application_run(AppCore *app)
 {
 	SDL_Event event;
-	app->is_running         = true;
-	uint64_t fps_frame_time = 1000 / fps;
+	app->is_running = true;
 
 	while (app->is_running)
 	{
-		uint64_t start = SDL_GetTicks();
 		while (SDL_PollEvent(&event))
 		{
 			switch (event.type)
@@ -59,11 +59,5 @@ void core_application_run(AppCore *app, uint32_t fps)
 		SDL_SetRenderDrawColor(app->renderer, 0, 255, 255, 255);
 
 		SDL_RenderPresent(app->renderer);
-
-		uint64_t current_frame_time = SDL_GetTicks() - start;
-		if (current_frame_time < fps_frame_time)
-		{
-			SDL_Delay(fps_frame_time - current_frame_time);
-		}
 	}
 }

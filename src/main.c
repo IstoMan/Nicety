@@ -29,7 +29,7 @@ int main(void)
 	}
 
 	Document doc;
-	int      err = init_document("resources/book.pdf", &doc, core);
+	int      err = init_document("resources/book.pdf", &doc, &core);
 	if (err == 1)
 	{
 		return EXIT_FAILURE;
@@ -44,7 +44,7 @@ int main(void)
 	SDL_GetWindowSize(core.window, &width, &height);
 	Clay_Initialize(clayMemory, (Clay_Dimensions) {(float) width, (float) height}, (Clay_ErrorHandler) {HandleClayErrors});
 
-	core_application_run(&core, nicety_create_layout);
+	core_application_run(&core, &doc, nicety_create_layout);
 
 	free(clayMemory.memory);
 	return EXIT_SUCCESS;

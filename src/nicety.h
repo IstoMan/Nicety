@@ -1,11 +1,12 @@
 #pragma once
-#include "application_core.h"
 #include <stdint.h>
 #include <stddef.h>
 
+typedef struct AppCore AppCore;
+
 typedef enum
 {
-	COLOR_FORMAT_BGRA,        // 8-bit per channel, premultiplied alpha
+	COLOR_FORMAT_BGkRA,        // 8-bit per channel, premultiplied alpha
 	COLOR_FORMAT_RGBA,
 	COLOR_FORMAT_RGB,
 	COLOR_FORMAT_GRAY8
@@ -33,5 +34,5 @@ typedef struct
 	const char *file_path;
 } Document;
 
-void init_page_texture(Page *page, AppCore core);
-int  init_document(const char *file_path, Document *document, AppCore core);
+void init_page_texture(Page *page, AppCore *core);
+int  init_document(const char *file_path, Document *document, AppCore *core);

@@ -1,5 +1,5 @@
+#pragma once
 #include "clay.h"
+#include "nicety.h"
 
-typedef Clay_RenderCommandArray (*create_ui)(void);
-
-Clay_RenderCommandArray nicety_create_layout(void);
+Clay_RenderCommandArray nicety_create_layout(Document doc);

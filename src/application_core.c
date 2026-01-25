@@ -1,5 +1,6 @@
 #include "application_core.h"
 #include "clay_renderer_SDL3.h"
+#include <SDL3/SDL_render.h>
 #include <SDL3/SDL_video.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -42,7 +43,7 @@ bool core_application_init(AppCore *app, WindowSpecs specs)
 	return is_initialized;
 }
 
-void core_application_run(AppCore *app, create_ui layout_func)
+void core_application_run(AppCore *app, Document *doc, create_ui layout_func)
 {
 	SDL_Event event;
 	app->is_running = true;
@@ -65,7 +66,7 @@ void core_application_run(AppCore *app, create_ui layout_func)
 			}
 		}
 
-		Clay_RenderCommandArray commands = layout_func();
+		Clay_RenderCommandArray commands = layout_func(*doc);
 
 		SDL_SetRenderDrawColor(app->renderer, 255, 255, 255, 255);
 		SDL_RenderClear(app->renderer);

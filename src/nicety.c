@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-int init_document_mupdf(const char *file_path, Document *document, AppCore core)
+int init_document_mupdf(const char *file_path, Document *document, AppCore *core)
 {
 	fz_context *ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
 	if (!ctx)
@@ -71,7 +71,7 @@ int init_document_mupdf(const char *file_path, Document *document, AppCore core)
 	return 0;
 }
 
-void init_page_texture_sdl(Page *page, AppCore app)
+void init_page_texture_sdl(Page *page, AppCore *app)
 {
 	SDL_Surface *surface = NULL;
 	SDL_Texture *texture = NULL;
@@ -86,18 +86,18 @@ void init_page_texture_sdl(Page *page, AppCore app)
 		format = SDL_PIXELFORMAT_RGBA32;
 	}
 	surface = SDL_CreateSurfaceFrom(page->page_bitmap.width, page->page_bitmap.height, format, page->page_bitmap.pixel_data, page->page_bitmap.rows_per_byte);
-	texture = SDL_CreateTextureFromSurface(app.renderer, surface);
+	texture = SDL_CreateTextureFromSurface(app->renderer, surface);
 
 	SDL_DestroySurface(surface);
 	page->page_texture = texture;
 }
 
-int init_document(const char *file_path, Document *document, AppCore core)
+int init_document(const char *file_path, Document *document, AppCore *core)
 {
 	return init_document_mupdf(file_path, document, core);
 }
 
-void init_page_texture(Page *page, AppCore core)
+void init_page_texture(Page *page, AppCore *core)
 {
 	init_page_texture_sdl(page, core);
 }

@@ -1,8 +1,7 @@
 #include "ui.h"
 #include "nicety.h"
-#include <SDL3/SDL_render.h>
 
-Clay_RenderCommandArray nicety_create_layout(Document doc)
+Clay_RenderCommandArray nicety_create_layout(App app, Document doc)
 {
 	Clay_BeginLayout();
 
@@ -45,31 +44,40 @@ Clay_RenderCommandArray nicety_create_layout(Document doc)
                                          },
 			                         })
 			{}
+
 			CLAY(CLAY_ID("Content"), {
-			                             .layout = {
-			                                 .layoutDirection = CLAY_TOP_TO_BOTTOM,
-			                                 .sizing          = grow_sizing,
-			                                 .padding         = CLAY_PADDING_ALL(20),
-			                                 .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
-			                             },
+			                             .backgroundColor = {24, 25, 38, 255},
+			                             .clip            = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
+			                             .layout          = {
+			                                          .layoutDirection = CLAY_TOP_TO_BOTTOM,
+			                                          .sizing          = grow_sizing,
+			                                          .padding         = CLAY_PADDING_ALL(20),
+			                                          .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
+			                                          .childGap        = 20,
+                                         },
+
 			                         })
 			{
-				CLAY(CLAY_ID("Pages"), {
-				                           .layout = {
-				                               .sizing = {
-				                                   .height = CLAY_SIZING_FIT(.min = doc.pages[0].page_bitmap.height),
-				                                   .width  = CLAY_SIZING_FIT(.min = doc.pages[0].page_bitmap.width),
-				                               },
-				                           },
-				                           .image = {
-				                               .imageData = doc.pages[0].page_texture,
-				                           },
-				                           .border = {
-				                               .width = CLAY_BORDER_ALL(1),
-				                               .color = {138, 173, 244, 255},
-				                           },
-				                       })
-				{}
+				for (size_t i = 0; i < doc.number_of_pages; i++)
+				{
+					Page current_page = doc.pages[i];
+					CLAY_AUTO_ID({
+					    .layout = {
+					        .sizing = {
+					            .width  = CLAY_SIZING_FIT(.min = current_page.page_bitmap.width),
+					            .height = CLAY_SIZING_FIT(.min = current_page.page_bitmap.height),
+					        },
+					    },
+					    .image = {
+					        .imageData = current_page.page_texture,
+					    },
+					    .border = {
+					        .width = CLAY_BORDER_ALL(1),
+					        .color = {138, 173, 244, 255},
+					    },
+					})
+					{}
+				}
 			}
 		}
 	}

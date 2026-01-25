@@ -1,8 +1,7 @@
 #include "application_core.h"
 #include "clay_renderer_SDL3.h"
-#include <SDL3/SDL_render.h>
-#include <SDL3/SDL_video.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
 void application_cleanup(AppCore *core)
@@ -43,36 +42,59 @@ bool core_application_init(AppCore *app, WindowSpecs specs)
 	return is_initialized;
 }
 
-void core_application_run(AppCore *app, Document *doc, create_ui layout_func)
+void core_application_run(AppCore *core, App *app, Document *doc, create_ui layout_func)
 {
 	SDL_Event event;
-	app->is_running = true;
+	core->is_running = true;
 
 	Clay_SDL3RendererData data = {
-	    .renderer = app->renderer,
+	    .renderer = core->renderer,
 	};
+	uint32_t last_tick_time = SDL_GetTicks();
+	float    deltaTime      = 0.0f;
 
-	while (app->is_running)
+	while (core->is_running)
 	{
+		Uint32 tick_time = SDL_GetTicks();
+		// Calculate delta time in milliseconds
+		Uint32 delta = tick_time - last_tick_time;
+		// Convert to seconds (float)
+		deltaTime      = delta / 1000.0f;
+		last_tick_time = tick_time;
 		while (SDL_PollEvent(&event))
 		{
 			switch (event.type)
 			{
 				case SDL_EVENT_QUIT:
-					app->is_running = false;
+					core->is_running = false;
 					break;
 				case SDL_EVENT_WINDOW_RESIZED:
 					Clay_SetLayoutDimensions((Clay_Dimensions) {(float) event.window.data1, (float) event.window.data2});
+					break;
+				case SDL_EVENT_MOUSE_BUTTON_DOWN:
+					Clay_SetPointerState((Clay_Vector2) {event.button.x, event.button.y},
+					                     event.button.button == SDL_BUTTON_LEFT);
+					break;
+				case SDL_EVENT_MOUSE_MOTION:
+					Clay_SetPointerState((Clay_Vector2) {event.motion.x, event.motion.y}, event.motion.state & SDL_BUTTON_LMASK);
+					break;
+				case SDL_EVENT_MOUSE_WHEEL:
+					Clay_UpdateScrollContainers(true, (Clay_Vector2) {app->scroll_state.x, app->scroll_state.y}, deltaTime);
+					app->scroll_state.x = event.wheel.x * 5;
+					app->scroll_state.y = event.wheel.y * 5;
+					break;
+				default:
+					break;
 			}
 		}
 
-		Clay_RenderCommandArray commands = layout_func(*doc);
+		Clay_RenderCommandArray commands = layout_func(*app, *doc);
 
-		SDL_SetRenderDrawColor(app->renderer, 255, 255, 255, 255);
-		SDL_RenderClear(app->renderer);
+		SDL_SetRenderDrawColor(core->renderer, 255, 255, 255, 255);
+		SDL_RenderClear(core->renderer);
 
 		SDL_Clay_RenderClayCommands(&data, &commands);
 
-		SDL_RenderPresent(app->renderer);
+		SDL_RenderPresent(core->renderer);
 	}
 }

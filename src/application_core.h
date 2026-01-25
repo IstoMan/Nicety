@@ -17,8 +17,8 @@ typedef struct
 	bool        turn_vsync_on;
 } WindowSpecs;
 
-typedef Clay_RenderCommandArray (*create_ui)(Document doc);
+typedef Clay_RenderCommandArray (*create_ui)(App app, Document doc);
 
 bool core_application_init(AppCore *app, WindowSpecs specs);
-void core_application_run(AppCore *app, Document *doc, create_ui layout_func);
+void core_application_run(AppCore *core, App *app, Document *doc, create_ui layout_func);
 void application_cleanup(AppCore *core);

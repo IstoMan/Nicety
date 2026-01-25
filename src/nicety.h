@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "clay.h"
 #include <stddef.h>
 
 typedef struct AppCore AppCore;
@@ -33,6 +34,11 @@ typedef struct
 	size_t      number_of_pages;
 	const char *file_path;
 } Document;
+
+typedef struct
+{
+	Clay_Vector2 scroll_state;
+} App;
 
 void init_page_texture(Page *page, AppCore *core);
 int  init_document(const char *file_path, Document *document, AppCore *core);

@@ -1,66 +1,89 @@
 #include "application_core.h"
 #include "clay_renderer_SDL3.h"
+#include <SDL3/SDL_stdinc.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-void application_cleanup(AppCore *core)
+void application_cleanup(Application *core)
 {
 	SDL_DestroyRenderer(core->renderer);
 	SDL_DestroyWindow(core->window);
+	TTF_DestroyRendererTextEngine(core->ttf_renderer);
+	SDL_free(core->fonts);
+	TTF_Quit();
 	SDL_Quit();
 }
 
-bool core_application_init(AppCore *app, WindowSpecs specs)
+bool application_init(Application *app, WindowSpecs specs)
 {
 	memset(app, 0, sizeof *app);
 	bool is_initialized = true;
 
-	app->is_running = false;
+	app->is_running       = false;
+	app->layer_stack.size = 0;
 
 	if (!SDL_Init(SDL_INIT_VIDEO))
 	{
 		fprintf(stderr, "Couldn't Init SDL: %s\n", SDL_GetError());
 		application_cleanup(app);
-		is_initialized = false;
-		app            = NULL;
+		app                   = NULL;
+		return is_initialized = false;
+	}
+
+	if (!TTF_Init())
+	{
+		fprintf(stderr, "Couldn't Init TTF: %s\n", SDL_GetError());
+		application_cleanup(app);
+		app                   = NULL;
+		return is_initialized = false;
 	}
 
 	if (!SDL_CreateWindowAndRenderer(specs.title, specs.width, specs.height, 0, &app->window, &app->renderer))
 	{
 		fprintf(stderr, "Couldn't Init Window and Renderer: %s\n", SDL_GetError());
 		application_cleanup(app);
-		is_initialized = false;
-		app            = NULL;
+		app                   = NULL;
+		return is_initialized = false;
 	}
-	else
+	SDL_SetRenderVSync(app->renderer, specs.turn_vsync_on);
+	SDL_SetWindowResizable(app->window, true);
+
+	app->ttf_renderer = TTF_CreateRendererTextEngine(app->renderer);
+	if (app->ttf_renderer == NULL)
 	{
-		SDL_SetRenderVSync(app->renderer, specs.turn_vsync_on);
-		SDL_SetWindowResizable(app->window, true);
+		fprintf(stderr, "Couldn't Init TTF Renderer: %s\n", SDL_GetError());
+		application_cleanup(app);
+		app                   = NULL;
+		return is_initialized = false;
+	}
+
+	app->fonts = SDL_calloc(1, sizeof(TTF_Font *));
+	if (!app->fonts)
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to allocate memory for the font array: %s", SDL_GetError());
+		return SDL_APP_FAILURE;
 	}
 
 	return is_initialized;
 }
 
-void core_application_run(AppCore *core, App *app, Document *doc, create_ui layout_func)
+void application_run(Application *core)
 {
 	SDL_Event event;
 	core->is_running = true;
 
-	Clay_SDL3RendererData data = {
-	    .renderer = core->renderer,
-	};
 	uint32_t last_tick_time = SDL_GetTicks();
 	float    deltaTime      = 0.0f;
 
 	while (core->is_running)
 	{
-		Uint32 tick_time = SDL_GetTicks();
-		// Calculate delta time in milliseconds
-		Uint32 delta = tick_time - last_tick_time;
-		// Convert to seconds (float)
-		deltaTime      = delta / 1000.0f;
-		last_tick_time = tick_time;
+		uint32_t tick_time = SDL_GetTicks();
+		uint32_t delta     = tick_time - last_tick_time;
+		deltaTime          = delta / 1000.0f;
+		last_tick_time     = tick_time;
 		while (SDL_PollEvent(&event))
 		{
 			switch (event.type)
@@ -80,21 +103,32 @@ void core_application_run(AppCore *core, App *app, Document *doc, create_ui layo
 					break;
 				case SDL_EVENT_MOUSE_WHEEL:
 					Clay_UpdateScrollContainers(true, (Clay_Vector2) {app->scroll_state.x, app->scroll_state.y}, deltaTime);
-					app->scroll_state.x = event.wheel.x * 5;
-					app->scroll_state.y = event.wheel.y * 5;
+					app->scroll_state.x = event.wheel.x * app->sensitivity;
+					app->scroll_state.y = event.wheel.y * app->sensitivity;
 					break;
 				default:
 					break;
 			}
 		}
 
-		Clay_RenderCommandArray commands = layout_func(*app, *doc);
-
 		SDL_SetRenderDrawColor(core->renderer, 255, 255, 255, 255);
 		SDL_RenderClear(core->renderer);
 
-		SDL_Clay_RenderClayCommands(&data, &commands);
-
 		SDL_RenderPresent(core->renderer);
 	}
+}
+
+void application_add_layer(Application *core, ILayer *layer)
+{
+	if (core->layer_stack.size == 0)
+	{
+		core->layer_stack.layers = malloc(sizeof *layer);
+	}
+	else
+	{
+		core->layer_stack.layers = realloc(core->layer_stack.layers, sizeof *layer);
+	}
+
+	core->layer_stack.layers[core->layer_stack.size] = *layer;
+	core->layer_stack.size++;
 }

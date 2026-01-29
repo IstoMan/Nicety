@@ -1,14 +1,28 @@
 #include "ui.h"
-#include "nicety.h"
+#include "document.h"
 
-Clay_RenderCommandArray nicety_create_layout(App app, Document doc)
+Clay_Color  base_color  = {36, 39, 58, 255};
+Clay_Sizing grow_sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)};
+
+Clay_RenderCommandArray nicety_load_file_ui(void)
+{
+	Clay_BeginLayout();
+	CLAY(CLAY_ID("Outer"), {
+	                           .backgroundColor = base_color,
+	                           .layout          = {
+	                                        .sizing = grow_sizing,
+                               },
+	                       })
+	{}
+	return Clay_EndLayout();
+}
+
+Clay_RenderCommandArray nicety_file_view_ui(Document doc)
 {
 	Clay_BeginLayout();
 
-	Clay_Sizing grow_sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)};
-
 	CLAY(CLAY_ID("Outer"), {
-	                           .backgroundColor = {36, 39, 58, 255},
+	                           .backgroundColor = base_color,
 	                           .layout          = {
 	                                        .sizing          = grow_sizing,
 	                                        .layoutDirection = CLAY_TOP_TO_BOTTOM,
@@ -27,7 +41,7 @@ Clay_RenderCommandArray nicety_create_layout(App app, Document doc)
 		                        })
 		{}
 		CLAY(CLAY_ID("Body"), {
-		                          .backgroundColor = {73, 77, 100, 255},
+		                          .backgroundColor = base_color,
 		                          .layout          = {
 		                                       .layoutDirection = CLAY_LEFT_TO_RIGHT,
 		                                       .sizing          = grow_sizing,
@@ -35,7 +49,7 @@ Clay_RenderCommandArray nicety_create_layout(App app, Document doc)
 		                      })
 		{
 			CLAY(CLAY_ID("Sidebar"), {
-			                             .backgroundColor = {30, 32, 48, 255},
+			                             .backgroundColor = {54, 58, 79, 255},
 			                             .layout          = {
 			                                          .sizing = {
 			                                              .height = CLAY_SIZING_GROW(0),

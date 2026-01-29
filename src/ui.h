@@ -1,5 +1,5 @@
 #pragma once
 #include "clay.h"
-#include "nicety.h"
+#include "document.h"
 
-Clay_RenderCommandArray nicety_create_layout(App app, Document doc);
+Clay_RenderCommandArray nicety_file_view_ui(Document doc);

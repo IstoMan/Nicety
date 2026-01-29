@@ -2,16 +2,9 @@
 #include "clay.h"
 
 #include "nicety.h"
-#include "stdio.h"
-#include "ui.h"
 #include "application_core.h"
 #include <stdbool.h>
 #include <stdlib.h>
-
-void HandleClayErrors(Clay_ErrorData errorData)
-{
-	fprintf(stderr, "%s\n", errorData.errorText.chars);
-}
 
 int main(void)
 {
@@ -22,36 +15,19 @@ int main(void)
 	    .turn_vsync_on = false,
 	};
 
-	AppCore core;
-	if (!core_application_init(&core, specs))
+	Application core;
+	if (!application_init(&core, specs))
 	{
 		return EXIT_FAILURE;
 	}
 
-	App my_app = {
-	    .scroll_state = {
-	        .x = 0,
-	        .y = 0,
-	    }};
+	// Menu menu;
+	App my_app;
+	app_init(&my_app, specs);
+	application_add_layer(&core, &my_app.interface);
 
-	Document doc;
-	int      err = init_document("resources/book.pdf", &doc, &core);
-	if (err == 1)
-	{
-		return EXIT_FAILURE;
-	}
+	application_run(&core);
 
-	uint64_t   totalMemorySize = Clay_MinMemorySize();
-	Clay_Arena clayMemory      = (Clay_Arena) {
-	         .memory   = malloc(totalMemorySize),
-	         .capacity = totalMemorySize};
-
-	int width, height;
-	SDL_GetWindowSize(core.window, &width, &height);
-	Clay_Initialize(clayMemory, (Clay_Dimensions) {(float) width, (float) height}, (Clay_ErrorHandler) {HandleClayErrors});
-
-	core_application_run(&core, &my_app, &doc, nicety_create_layout);
-
-	free(clayMemory.memory);
+	// SDL_free(clayMemory.memory);
 	return EXIT_SUCCESS;
 }

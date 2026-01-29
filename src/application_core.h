@@ -1,14 +1,20 @@
 #pragma once
 #include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
+#include <SDL3_ttf/SDL_textengine.h>
+#include "layer.h"
 #include "clay.h"
-#include "nicety.h"
 
-typedef struct AppCore
+typedef struct Application
 {
-	SDL_Window   *window;
-	SDL_Renderer *renderer;
-	bool          is_running;
-} AppCore;
+	SDL_Window     *window;
+	SDL_Renderer   *renderer;
+	TTF_TextEngine *ttf_renderer;
+	TTF_Font      **fonts;
+	ILayer_Array    layer_stack;
+
+	bool is_running;
+} Application;
 
 typedef struct
 {
@@ -17,8 +23,7 @@ typedef struct
 	bool        turn_vsync_on;
 } WindowSpecs;
 
-typedef Clay_RenderCommandArray (*create_ui)(App app, Document doc);
-
-bool core_application_init(AppCore *app, WindowSpecs specs);
-void core_application_run(AppCore *core, App *app, Document *doc, create_ui layout_func);
-void application_cleanup(AppCore *core);
+bool application_init(Application *core, WindowSpecs specs);
+void application_add_layer(Application *core, ILayer *pp);
+void application_run(Application *core);
+void application_cleanup(Application *core);

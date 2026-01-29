@@ -22,6 +22,7 @@ void app_init(App *self, WindowSpecs specs)
 	self->scroll_state.y = 0;
 	self->sensitivity    = 5;
 	self->program_state  = LOAD_FILE;
+	self->document       = NULL;
 
 	uint64_t total_memory_size = Clay_MinMemorySize();
 	self->clay_memory          = (Clay_Arena) {
@@ -33,15 +34,15 @@ void app_init(App *self, WindowSpecs specs)
 
 void app_destroy(App *self)
 {
-	if (self->doc != NULL)
+	if (self->document != NULL)
 	{
-		document_destroy(self->doc);
+		document_destroy(self->document);
 	}
 
 	free(self->clay_memory.memory);
 }
 
-void app_on_update(App *app)
+void app_on_render(App *app)
 {
 	switch (app->program_state)
 	{
@@ -52,7 +53,7 @@ void app_on_update(App *app)
 		break;
 		case FILE_VIEW:
 		{
-			nicety_file_view_ui(*app->doc);
+			nicety_file_view_ui(*app->document);
 		}
 		break;
 		default:

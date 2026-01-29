@@ -26,8 +26,8 @@ int main(void)
 
 	application_run(&core, &app);
 
-	application_cleanup(&core);
 	app_destroy(&app);
+	application_cleanup(&core);
 
 	return EXIT_SUCCESS;
 }

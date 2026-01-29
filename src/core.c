@@ -88,7 +88,7 @@ void application_run(Application *core, App *app)
 		SDL_SetRenderDrawColor(core->renderer, 255, 255, 255, 255);
 		SDL_RenderClear(core->renderer);
 
-		app_on_update(app);
+		app_on_render(app);
 
 		SDL_RenderPresent(core->renderer);
 	}

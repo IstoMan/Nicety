@@ -2,7 +2,7 @@
 #include "clay.h"
 
 #include "nicety.h"
-#include "application_core.h"
+#include "core.h"
 #include <stdbool.h>
 #include <stdlib.h>
 
@@ -21,13 +21,13 @@ int main(void)
 		return EXIT_FAILURE;
 	}
 
-	// Menu menu;
-	App my_app;
-	app_init(&my_app, specs);
-	application_add_layer(&core, &my_app.interface);
+	App app;
+	app_init(&app, specs);
 
-	application_run(&core);
+	application_run(&core, &app);
 
-	// SDL_free(clayMemory.memory);
+	application_cleanup(&core);
+	app_destroy(&app);
+
 	return EXIT_SUCCESS;
 }

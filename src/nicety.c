@@ -28,11 +28,6 @@ static inline Clay_Dimensions SDL_MeasureText(Clay_StringSlice text, Clay_TextEl
 	return (Clay_Dimensions) {(float) width, (float) height};
 }
 
-void handle_clay_errors(Clay_ErrorData errorData)
-{
-	fprintf(stderr, "%s\n", errorData.errorText.chars);
-}
-
 void app_init(App *self, WindowSpecs specs)
 {
 	memset(self, 0, sizeof &self);
@@ -41,13 +36,6 @@ void app_init(App *self, WindowSpecs specs)
 	self->sensitivity    = 5;
 	self->program_state  = LOAD_FILE;
 	self->document       = NULL;
-
-	uint64_t total_memory_size = Clay_MinMemorySize();
-	self->clay_memory          = (Clay_Arena) {
-	             .memory   = malloc(total_memory_size),
-	             .capacity = total_memory_size};
-
-	Clay_Initialize(self->clay_memory, (Clay_Dimensions) {specs.width, specs.height}, (Clay_ErrorHandler) {handle_clay_errors});
 }
 
 void app_destroy(App *self)
@@ -56,8 +44,6 @@ void app_destroy(App *self)
 	{
 		document_destroy(self->document);
 	}
-
-	free(self->clay_memory.memory);
 }
 
 void app_on_render(App *self, void *renderer)

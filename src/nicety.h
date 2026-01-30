@@ -49,7 +49,6 @@ typedef struct App
 	size_t                  sensitivity;
 	AppState                program_state;
 	Document               *document;
-	Clay_Arena              clay_memory;
 	Clay_RenderCommandArray ui_commands;
 } App;
 

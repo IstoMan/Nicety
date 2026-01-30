@@ -12,6 +12,7 @@ typedef struct Application
 	SDL_Renderer   *renderer;
 	TTF_TextEngine *ttf_renderer;
 	TTF_Font      **fonts;
+	Clay_Arena      clay_memory;
 
 	bool is_running;
 } Application;

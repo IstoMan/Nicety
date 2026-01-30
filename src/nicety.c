@@ -1,7 +1,7 @@
 #include "nicety.h"
-#include <SDL3/SDL_render.h>
 #include <mupdf/fitz.h>
 #include <stdlib.h>
+#include "clay_renderer_SDL3.h"
 #include "core.h"
 #include "stdio.h"
 
@@ -11,6 +11,23 @@ void page_init(Page *page, Application *core);
 Clay_RenderCommandArray nicety_load_file_ui(void);
 Clay_RenderCommandArray nicety_file_view_ui(const Document doc);
 
+int document_init_mupdf(Document **document, Application *core, const char *file_path);
+
+static inline Clay_Dimensions SDL_MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, void *userData)
+{
+	TTF_Font **fonts = userData;
+	TTF_Font  *font  = fonts[config->fontId];
+	int        width, height;
+
+	TTF_SetFontSize(font, config->fontSize);
+	if (!TTF_GetStringSize(font, text.chars, text.length, &width, &height))
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to measure text: %s", SDL_GetError());
+	}
+
+	return (Clay_Dimensions) {(float) width, (float) height};
+}
+
 void handle_clay_errors(Clay_ErrorData errorData)
 {
 	fprintf(stderr, "%s\n", errorData.errorText.chars);
@@ -18,6 +35,7 @@ void handle_clay_errors(Clay_ErrorData errorData)
 
 void app_init(App *self, WindowSpecs specs)
 {
+	memset(self, 0, sizeof &self);
 	self->scroll_state.x = 0;
 	self->scroll_state.y = 0;
 	self->sensitivity    = 5;
@@ -42,18 +60,29 @@ void app_destroy(App *self)
 	free(self->clay_memory.memory);
 }
 
-void app_on_render(App *app)
+void app_on_render(App *self, void *renderer)
 {
-	switch (app->program_state)
+	Application          *app       = (Application *) renderer;
+	Clay_SDL3RendererData clay_data = {
+	    .renderer   = app->renderer,
+	    .textEngine = app->ttf_renderer,
+	    .fonts      = app->fonts,
+	};
+	SDL_Clay_RenderClayCommands(&clay_data, &self->ui_commands);
+}
+
+void app_on_update(App *self)
+{
+	switch (self->program_state)
 	{
 		case LOAD_FILE:
 		{
-			nicety_load_file_ui();
+			self->ui_commands = nicety_load_file_ui();
 		}
 		break;
 		case FILE_VIEW:
 		{
-			nicety_file_view_ui(*app->document);
+			self->ui_commands = nicety_file_view_ui(*self->document);
 		}
 		break;
 		default:
@@ -61,7 +90,7 @@ void app_on_render(App *app)
 	}
 }
 
-void app_on_event(App *app, Event event, float deltaTime)
+void app_on_event(App *self, Application *core, Event event, float deltaTime)
 {
 	switch (event.type)
 	{
@@ -69,28 +98,47 @@ void app_on_event(App *app, Event event, float deltaTime)
 			Clay_SetLayoutDimensions((Clay_Dimensions) {(float) event.window.data1, (float) event.window.data2});
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
-			Clay_SetPointerState((Clay_Vector2) {event.button.x, event.button.y},
-			                     event.button.button == SDL_BUTTON_LEFT);
+			Clay_SetPointerState((Clay_Vector2) {event.button.x, event.button.y}, event.button.button == SDL_BUTTON_LEFT);
 			break;
 		case SDL_EVENT_MOUSE_MOTION:
 			Clay_SetPointerState((Clay_Vector2) {event.motion.x, event.motion.y}, event.motion.state & SDL_BUTTON_LMASK);
 			break;
 		case SDL_EVENT_MOUSE_WHEEL:
-			Clay_UpdateScrollContainers(true, (Clay_Vector2) {app->scroll_state.x, app->scroll_state.y}, deltaTime);
-			app->scroll_state.x = event.wheel.x * app->sensitivity;
-			app->scroll_state.y = event.wheel.y * app->sensitivity;
-			break;
+		{
+			Clay_UpdateScrollContainers(true, (Clay_Vector2) {self->scroll_state.x, self->scroll_state.y}, deltaTime);
+			self->scroll_state.x = event.wheel.x * self->sensitivity;
+			self->scroll_state.y = event.wheel.y * self->sensitivity;
+		}
+		break;
+		case SDL_EVENT_DROP_FILE:
+		{
+			int err = document_init(&self->document, core, event.drop.data);
+			if (err == 1 || self->document == NULL)
+			{
+				fprintf(stderr, "Couldn't Load file %s\n", SDL_GetError());
+				exit(1);
+			}
+			self->program_state = FILE_VIEW;
+		}
+		break;
 		default:
 			break;
 	}
 }
 
-int document_init_mupdf(Document *document, Application *core, const char *file_path)
+int document_init_mupdf(Document **document_out, Application *core, const char *file_path)
 {
+	Document *document = malloc(sizeof(Document));
+	if (!document)
+	{
+		return 1;
+	}
+
 	fz_context *ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
 	if (!ctx)
 	{
 		fprintf(stderr, "Failed to create context\n");
+		free(document);
 		return 1;
 	}
 
@@ -100,6 +148,7 @@ int document_init_mupdf(Document *document, Application *core, const char *file_
 	if (doc == NULL)
 	{
 		fprintf(stderr, "Failed to load document");
+		free(document);
 		return 1;
 	}
 
@@ -129,6 +178,8 @@ int document_init_mupdf(Document *document, Application *core, const char *file_
 		else
 		{
 			fprintf(stderr, "Unsupported pixel format\n");
+			free(document->pages);
+			free(document);
 			return 1;
 		}
 
@@ -147,6 +198,8 @@ int document_init_mupdf(Document *document, Application *core, const char *file_
 	fz_drop_pixmap(ctx, pix);
 	fz_drop_document(ctx, doc);
 	fz_drop_context(ctx);
+
+	*document_out = document;
 	return 0;
 }
 
@@ -178,7 +231,7 @@ void page_init(Page *page, Application *core)
 
 // Document
 
-int document_init(Document *document, Application *core, const char *file_path)
+int document_init(Document **document, Application *core, const char *file_path)
 {
 	return document_init_mupdf(document, core, file_path);
 }
@@ -204,7 +257,12 @@ Clay_RenderCommandArray nicety_load_file_ui(void)
 	                                        .sizing = grow_sizing,
                                },
 	                       })
-	{}
+	{
+		CLAY(CLAY_ID("Text"), {
+
+		                      })
+		{}
+	}
 	return Clay_EndLayout();
 }
 

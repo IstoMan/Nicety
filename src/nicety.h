@@ -45,18 +45,19 @@ typedef enum
 
 typedef struct App
 {
-	Clay_Vector2 scroll_state;
-	size_t       sensitivity;
-	AppState     program_state;
-	Document    *document;
-	Clay_Arena   clay_memory;
+	Clay_Vector2            scroll_state;
+	size_t                  sensitivity;
+	AppState                program_state;
+	Document               *document;
+	Clay_Arena              clay_memory;
+	Clay_RenderCommandArray ui_commands;
 } App;
 
 void app_init(App *self, WindowSpecs specs);
-void app_on_render(App *self);
-void app_on_render(App *self);
-void app_on_event(App *self, Event event, float deltaTime);
+void app_on_update(App *self);
+void app_on_render(App *self, void *renderer);
+void app_on_event(App *self, Application *core, Event event, float deltaTime);
 void app_destroy(App *self);
 
-int  document_init(Document *document, Application *core, const char *file_path);
+int  document_init(Document **document, Application *core, const char *file_path);
 void document_destroy(Document *document);

@@ -22,7 +22,7 @@ int main(void)
 	}
 
 	App app;
-	app_init(&app, specs);
+	app_init(&app);
 
 	application_run(&core, &app);
 

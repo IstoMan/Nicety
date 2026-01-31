@@ -1,6 +1,7 @@
 #include "core.h"
 #include "clay_renderer_SDL3.h"
 #include <SDL3/SDL_stdinc.h>
+#include <SDL3/SDL_video.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,6 +13,21 @@ static const Uint32 FONT_ID = 0;
 void handle_clay_errors(Clay_ErrorData errorData)
 {
 	fprintf(stderr, "%s\n", errorData.errorText.chars);
+}
+
+static inline Clay_Dimensions SDL_MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, void *userData)
+{
+	TTF_Font **fonts = userData;
+	TTF_Font  *font  = fonts[config->fontId];
+	int        width, height;
+
+	TTF_SetFontSize(font, config->fontSize);
+	if (!TTF_GetStringSize(font, text.chars, text.length, &width, &height))
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to measure text: %s", SDL_GetError());
+	}
+
+	return (Clay_Dimensions) {(float) width, (float) height};
 }
 
 bool application_init(Application *core, WindowSpecs specs)
@@ -78,6 +94,7 @@ bool application_init(Application *core, WindowSpecs specs)
 	             .capacity = total_memory_size};
 
 	Clay_Initialize(core->clay_memory, (Clay_Dimensions) {specs.width, specs.height}, (Clay_ErrorHandler) {handle_clay_errors});
+	Clay_SetMeasureTextFunction(SDL_MeasureText, core->fonts);
 
 	return is_initialized;
 }

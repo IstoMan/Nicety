@@ -52,7 +52,7 @@ typedef struct App
 	Clay_RenderCommandArray ui_commands;
 } App;
 
-void app_init(App *self, WindowSpecs specs);
+void app_init(App *self);
 void app_on_update(App *self);
 void app_on_render(App *self, void *renderer);
 void app_on_event(App *self, Application *core, Event event, float deltaTime);

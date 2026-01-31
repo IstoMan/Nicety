@@ -1,4 +1,5 @@
 #include "nicety.h"
+#include <SDL3/SDL_video.h>
 #include <mupdf/fitz.h>
 #include <stdlib.h>
 #include "clay_renderer_SDL3.h"
@@ -13,22 +14,9 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc);
 
 int document_init_mupdf(Document **document, Application *core, const char *file_path);
 
-static inline Clay_Dimensions SDL_MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, void *userData)
-{
-	TTF_Font **fonts = userData;
-	TTF_Font  *font  = fonts[config->fontId];
-	int        width, height;
+static const int FONT_ID_0 = 0;
 
-	TTF_SetFontSize(font, config->fontSize);
-	if (!TTF_GetStringSize(font, text.chars, text.length, &width, &height))
-	{
-		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to measure text: %s", SDL_GetError());
-	}
-
-	return (Clay_Dimensions) {(float) width, (float) height};
-}
-
-void app_init(App *self, WindowSpecs specs)
+void app_init(App *self)
 {
 	memset(self, 0, sizeof &self);
 	self->scroll_state.x = 0;
@@ -240,14 +228,15 @@ Clay_RenderCommandArray nicety_load_file_ui(void)
 	CLAY(CLAY_ID("Outer"), {
 	                           .backgroundColor = base_color,
 	                           .layout          = {
-	                                        .sizing = grow_sizing,
-                               },
+	                                        .sizing         = grow_sizing,
+	                                        .childAlignment = {.x = CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
 	                       })
 	{
-		CLAY(CLAY_ID("Text"), {
-
-		                      })
-		{}
+		CLAY_TEXT(CLAY_STRING("Drop a File"), CLAY_TEXT_CONFIG({
+		                                          .fontId    = FONT_ID_0,
+		                                          .fontSize  = 50,
+		                                          .textColor = {202, 211, 245, 255},
+		                                      }));
 	}
 	return Clay_EndLayout();
 }
@@ -290,9 +279,28 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc)
 			                                              .height = CLAY_SIZING_GROW(0),
 			                                              .width  = CLAY_SIZING_FIXED(150),
                                              },
+			                                          .layoutDirection = CLAY_TOP_TO_BOTTOM,
+			                                          .childGap        = 1,
                                          },
 			                         })
-			{}
+			{
+				for (size_t i = 0; i < doc.number_of_pages; i++)
+				{
+					Page current_page = doc.pages[i];
+					CLAY_AUTO_ID({
+					    .layout = {
+					        .sizing = {
+					            .width  = CLAY_SIZING_GROW(0),
+					            .height = CLAY_SIZING_GROW(0),
+					        },
+					    },
+					    .image = {
+					        .imageData = current_page.page_texture,
+					    },
+					})
+					{}
+				}
+			}
 
 			CLAY(CLAY_ID("Content"), {
 			                             .backgroundColor = {24, 25, 38, 255},

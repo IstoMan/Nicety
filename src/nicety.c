@@ -19,11 +19,9 @@ static const int FONT_ID_0 = 0;
 void app_init(App *self)
 {
 	memset(self, 0, sizeof &self);
-	self->scroll_state.x = 0;
-	self->scroll_state.y = 0;
-	self->sensitivity    = 5;
-	self->program_state  = LOAD_FILE;
-	self->document       = NULL;
+	self->sensitivity   = 3;
+	self->program_state = LOAD_FILE;
+	self->document      = NULL;
 }
 
 void app_destroy(App *self)
@@ -79,14 +77,21 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 			break;
 		case SDL_EVENT_MOUSE_WHEEL:
 		{
-			Clay_UpdateScrollContainers(true, (Clay_Vector2) {self->scroll_state.x, self->scroll_state.y}, deltaTime);
-			self->scroll_state.x = event.wheel.x * self->sensitivity;
-			self->scroll_state.y = event.wheel.y * self->sensitivity;
+			Clay_UpdateScrollContainers(true, (Clay_Vector2) {(float) event.wheel.x * self->sensitivity, (float) event.wheel.y * self->sensitivity}, deltaTime);
+			//  lay_UpdateScrollContainers(true, (Clay_Vector2) {self->scroll_state.x, self->scroll_state.y}, deltaTime);
+			//  self->scroll_state.x = event.wheel.x * self->sensitivity;
+			//  self->scroll_state.y = event.wheel.y * self->sensitivity;
 		}
 		break;
 		case SDL_EVENT_DROP_FILE:
 		{
-			int err = document_init(&self->document, core, event.drop.data);
+			if (self->document != NULL)
+			{
+				document_destroy(self->document);
+				self->document = NULL;
+			}
+			char *file_path_copy = SDL_strdup(event.drop.data);
+			int   err            = document_init(&self->document, core, file_path_copy);
 			if (err == 1 || self->document == NULL)
 			{
 				fprintf(stderr, "Couldn't Load file %s\n", SDL_GetError());
@@ -214,8 +219,10 @@ void document_destroy(Document *document)
 {
 	for (size_t i = 0; i < document->number_of_pages; i++)
 	{
-		SDL_DestroyTexture(document->pages->page_texture);
+		SDL_DestroyTexture(document->pages[i].page_texture);
 	}
+	free(document->pages);
+	SDL_free((void *) document->file_path);
 	free(document);
 }
 
@@ -274,33 +281,18 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc)
 		{
 			CLAY(CLAY_ID("Sidebar"), {
 			                             .backgroundColor = {54, 58, 79, 255},
+			                             .clip            = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
 			                             .layout          = {
 			                                          .sizing = {
 			                                              .height = CLAY_SIZING_GROW(0),
 			                                              .width  = CLAY_SIZING_FIXED(150),
                                              },
 			                                          .layoutDirection = CLAY_TOP_TO_BOTTOM,
-			                                          .childGap        = 1,
+			                                          .childGap        = 2,
+			                                          .padding         = CLAY_PADDING_ALL(10),
                                          },
 			                         })
-			{
-				for (size_t i = 0; i < doc.number_of_pages; i++)
-				{
-					Page current_page = doc.pages[i];
-					CLAY_AUTO_ID({
-					    .layout = {
-					        .sizing = {
-					            .width  = CLAY_SIZING_GROW(0),
-					            .height = CLAY_SIZING_GROW(0),
-					        },
-					    },
-					    .image = {
-					        .imageData = current_page.page_texture,
-					    },
-					})
-					{}
-				}
-			}
+			{}
 
 			CLAY(CLAY_ID("Content"), {
 			                             .backgroundColor = {24, 25, 38, 255},

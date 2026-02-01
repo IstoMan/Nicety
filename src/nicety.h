@@ -45,7 +45,6 @@ typedef enum
 
 typedef struct App
 {
-	Clay_Vector2            scroll_state;
 	size_t                  sensitivity;
 	AppState                program_state;
 	Document               *document;

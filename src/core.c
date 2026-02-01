@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "nicety.h"
 
 static const Uint32 FONT_ID = 0;
@@ -72,7 +73,7 @@ bool application_init(Application *core, WindowSpecs specs)
 		return is_initialized = false;
 	}
 
-	core->fonts = SDL_calloc(1, sizeof(TTF_Font *));
+	core->fonts = calloc(1, sizeof(TTF_Font *));
 	if (!core->fonts)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to allocate memory for the font array: %s", SDL_GetError());
@@ -141,6 +142,10 @@ void application_cleanup(Application *core)
 	SDL_DestroyRenderer(core->renderer);
 	SDL_DestroyWindow(core->window);
 	TTF_DestroyRendererTextEngine(core->ttf_renderer);
+	if (core->fonts)
+	{
+		TTF_CloseFont(core->fonts[0]);
+	}
 	SDL_free(core->fonts);
 	TTF_Quit();
 	SDL_Quit();

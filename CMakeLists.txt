@@ -27,6 +27,8 @@ ${MUPDF_INCLUDE_DIRS})
 
 # Create executable
 target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic -g)
+# target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic
+# -g -fsanitize=address)
 
 # Link SDL3
 target_link_libraries(

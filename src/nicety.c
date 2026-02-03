@@ -288,11 +288,35 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc)
 			                                              .width  = CLAY_SIZING_FIXED(150),
                                              },
 			                                          .layoutDirection = CLAY_TOP_TO_BOTTOM,
-			                                          .childGap        = 2,
+			                                          .childGap        = 10,
+			                                          .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
 			                                          .padding         = CLAY_PADDING_ALL(10),
                                          },
 			                         })
-			{}
+			{
+				float page_scale = 6;
+				for (size_t i = 0; i < doc.number_of_pages; i++)
+				{
+					Page current_page = doc.pages[i];
+					CLAY_AUTO_ID({
+					    .layout = {
+					        .sizing = {
+					            .height = CLAY_SIZING_FIT(.min = current_page.page_bitmap.height / page_scale),
+					            .width  = CLAY_SIZING_FIT(.min = current_page.page_bitmap.width / page_scale),
+					        },
+					        .layoutDirection = CLAY_TOP_TO_BOTTOM,
+					    },
+					    .image = {
+					        .imageData = current_page.page_texture,
+					    },
+					    .border = {
+					        .width = CLAY_BORDER_ALL(1),
+					        .color = {138, 173, 244, 255},
+					    },
+					})
+					{}
+				}
+			}
 
 			CLAY(CLAY_ID("Content"), {
 			                             .backgroundColor = {24, 25, 38, 255},

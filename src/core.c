@@ -77,14 +77,16 @@ bool application_init(Application *core, WindowSpecs specs)
 	if (!core->fonts)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to allocate memory for the font array: %s", SDL_GetError());
-		return SDL_APP_FAILURE;
+		application_cleanup(core);
+		return false;
 	}
 
 	TTF_Font *font = TTF_OpenFont("resources/Inter-VariableFont_opsz,wght.ttf", 24);
 	if (!font)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to load font: %s", SDL_GetError());
-		return SDL_APP_FAILURE;
+		application_cleanup(core);
+		return false;
 	}
 
 	core->fonts[FONT_ID] = font;
@@ -94,7 +96,7 @@ bool application_init(Application *core, WindowSpecs specs)
 	             .memory   = malloc(total_memory_size),
 	             .capacity = total_memory_size};
 
-	Clay_Initialize(core->clay_memory, (Clay_Dimensions) {specs.width, specs.height}, (Clay_ErrorHandler) {handle_clay_errors});
+	Clay_Initialize(core->clay_memory, (Clay_Dimensions) {specs.width, specs.height}, (Clay_ErrorHandler) {handle_clay_errors, NULL});
 	Clay_SetMeasureTextFunction(SDL_MeasureText, core->fonts);
 
 	return is_initialized;
@@ -142,7 +144,7 @@ void application_cleanup(Application *core)
 	SDL_DestroyRenderer(core->renderer);
 	SDL_DestroyWindow(core->window);
 	TTF_DestroyRendererTextEngine(core->ttf_renderer);
-	if (core->fonts)
+	if (core->fonts && core->fonts[0])
 	{
 		TTF_CloseFont(core->fonts[0]);
 	}

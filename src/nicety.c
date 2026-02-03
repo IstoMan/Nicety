@@ -18,7 +18,7 @@ static const int FONT_ID_0 = 0;
 
 void app_init(App *self)
 {
-	memset(self, 0, sizeof &self);
+	memset(self, 0, sizeof *self);
 	self->sensitivity   = 3;
 	self->program_state = LOAD_FILE;
 	self->document      = NULL;
@@ -95,6 +95,7 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 			if (err == 1 || self->document == NULL)
 			{
 				fprintf(stderr, "Couldn't Load file %s\n", SDL_GetError());
+				SDL_free(file_path_copy);
 				exit(1);
 			}
 			self->program_state = FILE_VIEW;
@@ -171,10 +172,12 @@ int document_init_mupdf(Document **document_out, Application *core, const char *
 		document->pages[i].index       = i;
 		document->pages[i].page_bitmap = page_bitmap;
 		page_init(&document->pages[i], core);
+		/* Drop pixmap after texture upload; pixel_data is no longer needed */
+		document->pages[i].page_bitmap.pixel_data = NULL;
+		fz_drop_pixmap(ctx, pix);
+		fz_drop_page(ctx, page);
 	}
 
-	fz_drop_page(ctx, page);
-	fz_drop_pixmap(ctx, pix);
 	fz_drop_document(ctx, doc);
 	fz_drop_context(ctx);
 

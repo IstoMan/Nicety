@@ -49,6 +49,10 @@ typedef struct App
 	AppState                program_state;
 	Document               *document;
 	Clay_RenderCommandArray ui_commands;
+	Clay_Vector2            sidebar_scroll_offset;
+	Clay_Vector2            content_scroll_offset;
+	bool                    sidebar_scroll_valid;
+	bool                    content_scroll_valid;
 } App;
 
 void app_init(App *self);

@@ -10,7 +10,7 @@ void handle_clay_errors(Clay_ErrorData errorData);
 void page_init(Page *page, Application *core);
 
 Clay_RenderCommandArray nicety_load_file_ui(void);
-Clay_RenderCommandArray nicety_file_view_ui(const Document doc);
+Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app);
 
 int document_init_mupdf(Document **document, Application *core, const char *file_path);
 
@@ -19,9 +19,11 @@ static const int FONT_ID_0 = 0;
 void app_init(App *self)
 {
 	memset(self, 0, sizeof *self);
-	self->sensitivity   = 3;
-	self->program_state = LOAD_FILE;
-	self->document      = NULL;
+	self->sensitivity          = 3;
+	self->program_state        = LOAD_FILE;
+	self->document             = NULL;
+	self->sidebar_scroll_valid = false;
+	self->content_scroll_valid = false;
 }
 
 void app_destroy(App *self)
@@ -54,7 +56,7 @@ void app_on_update(App *self)
 		break;
 		case FILE_VIEW:
 		{
-			self->ui_commands = nicety_file_view_ui(*self->document);
+			self->ui_commands = nicety_file_view_ui(*self->document, self);
 		}
 		break;
 		default:
@@ -78,9 +80,6 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 		case SDL_EVENT_MOUSE_WHEEL:
 		{
 			Clay_UpdateScrollContainers(true, (Clay_Vector2) {(float) event.wheel.x * self->sensitivity, (float) event.wheel.y * self->sensitivity}, deltaTime);
-			//  lay_UpdateScrollContainers(true, (Clay_Vector2) {self->scroll_state.x, self->scroll_state.y}, deltaTime);
-			//  self->scroll_state.x = event.wheel.x * self->sensitivity;
-			//  self->scroll_state.y = event.wheel.y * self->sensitivity;
 		}
 		break;
 		case SDL_EVENT_DROP_FILE:
@@ -251,7 +250,7 @@ Clay_RenderCommandArray nicety_load_file_ui(void)
 	return Clay_EndLayout();
 }
 
-Clay_RenderCommandArray nicety_file_view_ui(const Document doc)
+Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app)
 {
 	Clay_BeginLayout();
 
@@ -282,9 +281,12 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc)
                                   },
 		                      })
 		{
+			// Try to get current scroll offset, fall back to preserved value if not found
+			Clay_ScrollContainerData sidebarData   = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
+			Clay_Vector2             sidebarOffset = (sidebarData.found && sidebarData.scrollPosition) ? *sidebarData.scrollPosition : (app->sidebar_scroll_valid ? app->sidebar_scroll_offset : (Clay_Vector2) {0, 0});
 			CLAY(CLAY_ID("Sidebar"), {
 			                             .backgroundColor = {54, 58, 79, 255},
-			                             .clip            = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
+			                             .clip            = {.vertical = true, .childOffset = sidebarOffset},
 			                             .layout          = {
 			                                          .sizing = {
 			                                              .height = CLAY_SIZING_GROW(0),
@@ -321,9 +323,12 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc)
 				}
 			}
 
+			// Try to get current scroll offset, fall back to preserved value if not found
+			Clay_ScrollContainerData contentData   = Clay_GetScrollContainerData(CLAY_ID("Content"));
+			Clay_Vector2             contentOffset = (contentData.found && contentData.scrollPosition) ? *contentData.scrollPosition : (app->content_scroll_valid ? app->content_scroll_offset : (Clay_Vector2) {0, 0});
 			CLAY(CLAY_ID("Content"), {
 			                             .backgroundColor = {24, 25, 38, 255},
-			                             .clip            = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
+			                             .clip            = {.vertical = true, .childOffset = contentOffset},
 			                             .layout          = {
 			                                          .layoutDirection = CLAY_TOP_TO_BOTTOM,
 			                                          .sizing          = grow_sizing,
@@ -358,5 +363,24 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc)
 		}
 	}
 
-	return Clay_EndLayout();
+	Clay_RenderCommandArray commands = Clay_EndLayout();
+
+	// Preserve scroll state after layout (for next frame, in case scroll containers get removed)
+	if (app->program_state == FILE_VIEW)
+	{
+		Clay_ScrollContainerData sidebarData = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
+		if (sidebarData.found && sidebarData.scrollPosition)
+		{
+			app->sidebar_scroll_offset = *sidebarData.scrollPosition;
+			app->sidebar_scroll_valid  = true;
+		}
+		Clay_ScrollContainerData contentData = Clay_GetScrollContainerData(CLAY_ID("Content"));
+		if (contentData.found && contentData.scrollPosition)
+		{
+			app->content_scroll_offset = *contentData.scrollPosition;
+			app->content_scroll_valid  = true;
+		}
+	}
+
+	return commands;
 }

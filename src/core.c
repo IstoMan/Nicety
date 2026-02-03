@@ -1,8 +1,5 @@
 #include "core.h"
 #include "clay_renderer_SDL3.h"
-#include <SDL3/SDL_stdinc.h>
-#include <SDL3/SDL_video.h>
-#include <SDL3_ttf/SDL_ttf.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -116,7 +113,7 @@ void application_run(Application *core, App *app)
 		uint32_t delta     = tick_time - last_tick_time;
 		deltaTime          = delta / 1000.0f;
 		last_tick_time     = tick_time;
-		while (SDL_PollEvent(&event))
+		if (SDL_WaitEvent(&event))
 		{
 			switch (event.type)
 			{

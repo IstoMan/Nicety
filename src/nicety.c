@@ -1,6 +1,6 @@
 #include "nicety.h"
-#include <SDL3/SDL_video.h>
 #include <mupdf/fitz.h>
+#include "tinyfiledialogs.h"
 #include <stdlib.h>
 #include "clay_renderer_SDL3.h"
 #include "core.h"
@@ -73,6 +73,28 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			Clay_SetPointerState((Clay_Vector2) {event.button.x, event.button.y}, event.button.button == SDL_BUTTON_LEFT);
+			if (self->program_state == LOAD_FILE && event.button.button == SDL_BUTTON_LEFT)
+			{
+				char const *filter[]   = {"*.pdf"};
+				char       *input_path = tinyfd_openFileDialog("Select a PDF", "./resources/", 1, filter, "PDF File", false);
+				if (input_path)
+				{
+					if (self->document != NULL)
+					{
+						document_destroy(self->document);
+						self->document = NULL;
+					}
+					char *input_path_copy = SDL_strdup(input_path);
+					int   err             = document_init(&self->document, core, input_path_copy);
+					if (err == 1 || self->document == NULL)
+					{
+						fprintf(stderr, "Couldn't Load file %s\n", SDL_GetError());
+						SDL_free(input_path_copy);
+						exit(1);
+					}
+					self->program_state = FILE_VIEW;
+				}
+			}
 			break;
 		case SDL_EVENT_MOUSE_MOTION:
 			Clay_SetPointerState((Clay_Vector2) {event.motion.x, event.motion.y}, event.motion.state & SDL_BUTTON_LMASK);
@@ -237,15 +259,21 @@ Clay_RenderCommandArray nicety_load_file_ui(void)
 	CLAY(CLAY_ID("Outer"), {
 	                           .backgroundColor = base_color,
 	                           .layout          = {
-	                                        .sizing         = grow_sizing,
-	                                        .childAlignment = {.x = CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
+	                                        .layoutDirection = CLAY_TOP_TO_BOTTOM,
+	                                        .sizing          = grow_sizing,
+	                                        .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER}},
 	                       })
 	{
-		CLAY_TEXT(CLAY_STRING("Drop a File"), CLAY_TEXT_CONFIG({
-		                                          .fontId    = FONT_ID_0,
-		                                          .fontSize  = 50,
-		                                          .textColor = {202, 211, 245, 255},
-		                                      }));
+		CLAY_TEXT(CLAY_STRING("Click to Select"), CLAY_TEXT_CONFIG({
+		                                              .fontId    = FONT_ID_0,
+		                                              .fontSize  = 50,
+		                                              .textColor = {202, 211, 245, 255},
+		                                          }));
+		CLAY_TEXT(CLAY_STRING("or Drop a File"), CLAY_TEXT_CONFIG({
+		                                             .fontId    = FONT_ID_0,
+		                                             .fontSize  = 30,
+		                                             .textColor = {202, 211, 245, 255},
+		                                         }));
 	}
 	return Clay_EndLayout();
 }

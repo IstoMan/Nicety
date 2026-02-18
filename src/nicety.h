@@ -3,6 +3,7 @@
 #include <SDL3/SDL_stdinc.h>
 #include "clay.h"
 #include "core.h"
+#include "utils.h"
 #include <stddef.h>
 
 typedef SDL_Event Event;
@@ -17,10 +18,10 @@ typedef enum
 
 typedef struct
 {
-	uint32_t    width, height;
-	uint32_t    rows_per_byte;
+	u32         width, height;
+	u32         rows_per_byte;
 	PixelFormat format;
-	uint8_t    *pixel_data;
+	u8         *pixel_data;
 } Bitmap;
 
 typedef struct

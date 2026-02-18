@@ -163,6 +163,10 @@ int document_init_mupdf(Document **document_out, Application *core, const char *
 	uint32_t   format;
 	Bitmap     page_bitmap;
 
+	// float     zoom = 4.0;        // 2x resolution (144 DPI)
+	// fz_matrix ctm  = fz_scale(zoom, zoom);
+	// TODO: have separate rendering for previews, lower quality render for previews
+
 	for (size_t i = 0; i < number_of_pages; i++)
 	{
 		page = fz_load_page(ctx, doc, i);
@@ -327,6 +331,7 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app)
                                          },
 			                         })
 			{
+				// TODO: Don't have this hardcoded
 				float page_scale = 6;
 				for (size_t i = 0; i < doc.number_of_pages; i++)
 				{
@@ -370,16 +375,18 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app)
 				for (size_t i = 0; i < doc.number_of_pages; i++)
 				{
 					Page current_page = doc.pages[i];
+					// current_page.page_bitmap.width / ;
 					CLAY_AUTO_ID({
 					    .layout = {
 					        .sizing = {
-					            .width  = CLAY_SIZING_FIT(.min = current_page.page_bitmap.width),
-					            .height = CLAY_SIZING_FIT(.min = current_page.page_bitmap.height),
+					            .width  = CLAY_SIZING_GROW(0),
+					            .height = CLAY_SIZING_GROW(0),
 					        },
 					    },
-					    .image = {
-					        .imageData = current_page.page_texture,
-					    },
+					    .aspectRatio = {(float) current_page.page_bitmap.width / current_page.page_bitmap.height},
+					    .image       = {
+					              .imageData = current_page.page_texture,
+                        },
 					    .border = {
 					        .width = CLAY_BORDER_ALL(1),
 					        .color = {138, 173, 244, 255},

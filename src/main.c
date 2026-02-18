@@ -3,8 +3,6 @@
 
 #include "nicety.h"
 #include "core.h"
-#include <stdbool.h>
-#include <stdlib.h>
 
 int main(void)
 {

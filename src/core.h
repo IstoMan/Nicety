@@ -2,6 +2,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <SDL3_ttf/SDL_textengine.h>
+#include "utils.h"
 #include "clay.h"
 
 typedef struct App App;
@@ -19,7 +20,7 @@ typedef struct Application
 
 typedef struct
 {
-	uint32_t    width, height;
+	u32         width, height;
 	const char *title;
 	bool        turn_vsync_on;
 } WindowSpecs;

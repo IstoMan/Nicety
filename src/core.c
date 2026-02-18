@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include "nicety.h"
 
-static const Uint32 FONT_ID = 0;
+static const u32 FONT_ID = 0;
 
 void handle_clay_errors(Clay_ErrorData errorData)
 {
@@ -88,10 +88,10 @@ bool application_init(Application *core, WindowSpecs specs)
 
 	core->fonts[FONT_ID] = font;
 
-	uint64_t total_memory_size = Clay_MinMemorySize();
-	core->clay_memory          = (Clay_Arena) {
-	             .memory   = malloc(total_memory_size),
-	             .capacity = total_memory_size};
+	u64 total_memory_size = Clay_MinMemorySize();
+	core->clay_memory     = (Clay_Arena) {
+	        .memory   = malloc(total_memory_size),
+	        .capacity = total_memory_size};
 
 	Clay_Initialize(core->clay_memory, (Clay_Dimensions) {specs.width, specs.height}, (Clay_ErrorHandler) {handle_clay_errors, NULL});
 	Clay_SetMeasureTextFunction(SDL_MeasureText, core->fonts);
@@ -104,15 +104,15 @@ void application_run(Application *core, App *app)
 	SDL_Event event;
 	core->is_running = true;
 
-	uint32_t last_tick_time = SDL_GetTicks();
-	float    deltaTime      = 0.0f;
+	u32   last_tick_time = SDL_GetTicks();
+	float deltaTime      = 0.0f;
 
 	while (core->is_running)
 	{
-		uint32_t tick_time = SDL_GetTicks();
-		uint32_t delta     = tick_time - last_tick_time;
-		deltaTime          = delta / 1000.0f;
-		last_tick_time     = tick_time;
+		u32 tick_time  = SDL_GetTicks();
+		u32 delta      = tick_time - last_tick_time;
+		deltaTime      = delta / 1000.0f;
+		last_tick_time = tick_time;
 		if (SDL_WaitEvent(&event))
 		{
 			switch (event.type)

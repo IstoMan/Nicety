@@ -160,7 +160,7 @@ int document_init_mupdf(Document **document_out, Application *core, const char *
 
 	fz_page   *page = NULL;
 	fz_pixmap *pix  = NULL;
-	uint32_t   format;
+	u32        format;
 	Bitmap     page_bitmap;
 
 	// float     zoom = 4.0;        // 2x resolution (144 DPI)
@@ -331,22 +331,21 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app)
                                          },
 			                         })
 			{
-				// TODO: Don't have this hardcoded
-				float page_scale = 6;
 				for (size_t i = 0; i < doc.number_of_pages; i++)
 				{
 					Page current_page = doc.pages[i];
 					CLAY_AUTO_ID({
 					    .layout = {
 					        .sizing = {
-					            .height = CLAY_SIZING_FIT(.min = current_page.page_bitmap.height / page_scale),
-					            .width  = CLAY_SIZING_FIT(.min = current_page.page_bitmap.width / page_scale),
+					            .height = CLAY_SIZING_GROW(0),
+					            .width  = CLAY_SIZING_GROW(0),
 					        },
 					        .layoutDirection = CLAY_TOP_TO_BOTTOM,
 					    },
-					    .image = {
-					        .imageData = current_page.page_texture,
-					    },
+					    .aspectRatio = {(float) current_page.page_bitmap.width / current_page.page_bitmap.height},
+					    .image       = {
+					              .imageData = current_page.page_texture,
+                        },
 					    .border = {
 					        .width = CLAY_BORDER_ALL(1),
 					        .color = {138, 173, 244, 255},

@@ -1,5 +1,6 @@
 #define CLAY_IMPLEMENTATION
 #include "clay.h"
+#include "arena.h"
 
 #include "nicety.h"
 #include "core.h"

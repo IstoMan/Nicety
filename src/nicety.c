@@ -281,6 +281,17 @@ Clay_RenderCommandArray nicety_load_file_ui(void)
 	return Clay_EndLayout();
 }
 
+static void toggle_view_mode(Clay_ElementId elementId, Clay_PointerData pointerData, intptr_t userData)
+{
+	(void) elementId;
+
+	if (pointerData.state == CLAY_POINTER_DATA_PRESSED_THIS_FRAME)
+	{
+		App *app       = (App *) userData;
+		app->view_mode = app->view_mode == VIEW_MODE_FILL ? VIEW_MODE_FIT_HEIGHT : VIEW_MODE_FILL;
+	}
+}
+
 Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app)
 {
 	Clay_BeginLayout();
@@ -301,9 +312,26 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app)
 		                                             .height = CLAY_SIZING_FIXED(40),
 		                                             .width  = CLAY_SIZING_GROW(0),
                                         },
+		                                         .padding         = CLAY_PADDING_ALL(8),
+		                                         .childAlignment  = {.y = CLAY_ALIGN_Y_CENTER},
+		                                         .layoutDirection = CLAY_LEFT_TO_RIGHT,
                                     },
 		                        })
-		{}
+		{
+			CLAY(CLAY_ID("ViewModeBtn"), {
+			                                 .backgroundColor = Clay_Hovered() ? (Clay_Color) {150, 160, 200, 255} : (Clay_Color) {100, 110, 150, 255},
+			                                 .layout          = {.padding = CLAY_PADDING_ALL(4)},
+			                                 .cornerRadius    = CLAY_CORNER_RADIUS(4),
+			                             })
+			{
+				Clay_OnHover(toggle_view_mode, (intptr_t) app);
+				CLAY_TEXT(app->view_mode == VIEW_MODE_FILL ? CLAY_STRING("Mode: Fill") : CLAY_STRING("Mode: Fit"), CLAY_TEXT_CONFIG({
+				                                                                                                       .fontId    = FONT_ID_0,
+				                                                                                                       .fontSize  = 16,
+				                                                                                                       .textColor = {255, 255, 255, 255},
+				                                                                                                   }));
+			}
+		}
 		CLAY(CLAY_ID("Body"), {
 		                          .backgroundColor = base_color,
 		                          .layout          = {
@@ -373,13 +401,28 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app)
 				for (size_t i = 0; i < doc.number_of_pages; i++)
 				{
 					Page current_page = doc.pages[i];
-					// current_page.page_bitmap.width / ;
+
+					Clay_Sizing pageSizing;
+					if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
+					{
+						float target_height = contentData.scrollContainerDimensions.height - 40;
+						float aspect_ratio  = (float) current_page.page_bitmap.width / current_page.page_bitmap.height;
+						pageSizing          = (Clay_Sizing) {
+						             .width  = CLAY_SIZING_FIXED(target_height * aspect_ratio),
+						             .height = CLAY_SIZING_FIXED(target_height),
+                        };
+					}
+					else
+					{
+						pageSizing = (Clay_Sizing) {
+						    .width  = CLAY_SIZING_GROW(0),
+						    .height = CLAY_SIZING_GROW(0),
+						};
+					}
+
 					CLAY_AUTO_ID({
 					    .layout = {
-					        .sizing = {
-					            .width  = CLAY_SIZING_GROW(0),
-					            .height = CLAY_SIZING_GROW(0),
-					        },
+					        .sizing = pageSizing,
 					    },
 					    .aspectRatio = {(float) current_page.page_bitmap.width / current_page.page_bitmap.height},
 					    .image       = {

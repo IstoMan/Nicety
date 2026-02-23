@@ -44,10 +44,17 @@ typedef enum
 	FILE_VIEW,
 } AppState;
 
+typedef enum
+{
+	VIEW_MODE_FILL = 0,
+	VIEW_MODE_FIT_HEIGHT,
+} ViewMode;
+
 typedef struct App
 {
 	size_t                  sensitivity;
 	AppState                program_state;
+	ViewMode                view_mode;
 	Document               *document;
 	Clay_RenderCommandArray ui_commands;
 	Clay_Vector2            sidebar_scroll_offset;

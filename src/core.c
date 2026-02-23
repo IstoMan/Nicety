@@ -94,6 +94,7 @@ bool application_init(Application *core, WindowSpecs specs)
 	        .capacity = total_memory_size};
 
 	Clay_Initialize(core->clay_memory, (Clay_Dimensions) {specs.width, specs.height}, (Clay_ErrorHandler) {handle_clay_errors, NULL});
+	Clay_SetDebugModeEnabled(false);
 	Clay_SetMeasureTextFunction(SDL_MeasureText, core->fonts);
 
 	return is_initialized;

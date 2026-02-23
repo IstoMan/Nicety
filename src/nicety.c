@@ -237,7 +237,6 @@ void page_init(Page *page, Application *core)
 }
 
 // Document
-
 int document_init(Document **document, Application *core, const char *file_path)
 {
 	return document_init_mupdf(document, core, file_path);
@@ -337,8 +336,8 @@ Clay_RenderCommandArray nicety_file_view_ui(const Document doc, App *app)
 					CLAY_AUTO_ID({
 					    .layout = {
 					        .sizing = {
-					            .height = CLAY_SIZING_GROW(0),
 					            .width  = CLAY_SIZING_GROW(0),
+					            .height = CLAY_SIZING_GROW(0),
 					        },
 					        .layoutDirection = CLAY_TOP_TO_BOTTOM,
 					    },

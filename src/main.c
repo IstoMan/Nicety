@@ -1,15 +1,14 @@
 #define CLAY_IMPLEMENTATION
 #include "clay.h"
-#include "arena.h"
 
-#include "nicety.h"
+#include "app.h"
 #include "core.h"
 
 int main(void)
 {
 	WindowSpecs specs = {
-	    .height        = 2000,
-	    .width         = 1500,
+	    .height        = 800,
+	    .width         = 1200,
 	    .title         = "Nicety",
 	    .turn_vsync_on = false,
 	};

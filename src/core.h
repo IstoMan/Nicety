@@ -25,6 +25,8 @@ typedef struct
 	bool        turn_vsync_on;
 } WindowSpecs;
 
+void handle_clay_errors(Clay_ErrorData errorData);
+
 bool application_init(Application *core, WindowSpecs specs);
 void application_run(Application *core, App *app);
 void application_cleanup(Application *core);

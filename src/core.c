@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "nicety.h"
+#include "app.h"
 
 static const u32 FONT_ID = 0;
 
@@ -51,7 +51,7 @@ bool application_init(Application *core, WindowSpecs specs)
 		return is_initialized = false;
 	}
 
-	if (!SDL_CreateWindowAndRenderer(specs.title, specs.width, specs.height, 0, &core->window, &core->renderer))
+	if (!SDL_CreateWindowAndRenderer(specs.title, specs.width, specs.height, SDL_WINDOW_RESIZABLE, &core->window, &core->renderer))
 	{
 		fprintf(stderr, "Couldn't Init Window and Renderer: %s\n", SDL_GetError());
 		application_cleanup(core);

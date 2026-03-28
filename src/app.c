@@ -49,28 +49,26 @@ static void app_close_document(App *self)
 
 static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 {
-	mem_arena *arena = arena_init(DOCUMENT_ARENA_BYTES);
+	mem_arena       *arena = arena_init(DOCUMENT_ARENA_BYTES);
+	DocumentContext *ctx;
+	Document        *doc;
+
 	if (arena == NULL)
 	{
 		SDL_free(file_path_owned);
 		return 1;
 	}
 
-	DocumentContext *ctx = document_context_init(arena, file_path_owned);
+	ctx = document_context_init(arena, file_path_owned);
 	if (ctx == NULL)
 	{
-		SDL_free(file_path_owned);
-		arena_destroy(arena);
-		return 1;
+		goto fail_arena;
 	}
 
-	Document *doc = malloc(sizeof(Document));
+	doc = malloc(sizeof(Document));
 	if (doc == NULL)
 	{
-		document_context_destroy(ctx);
-		arena_destroy(arena);
-		SDL_free(file_path_owned);
-		return 1;
+		goto fail_ctx;
 	}
 
 	memset(doc, 0, sizeof *doc);
@@ -79,20 +77,13 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 	if (document_measure_pages(ctx, doc) != 0)
 	{
 		free(doc);
-		document_context_destroy(ctx);
-		arena_destroy(arena);
-		SDL_free(file_path_owned);
-		return 1;
+		goto fail_ctx;
 	}
 
-	int err = document_load_page_window(ctx, core, 0, NICETY_PAGE_WINDOW_RADIUS, file_path_owned, doc);
-	if (err != 0)
+	if (document_load_page_window(ctx, core, 0, NICETY_PAGE_WINDOW_RADIUS, file_path_owned, doc) != 0)
 	{
 		document_destroy(ctx, doc);
-		document_context_destroy(ctx);
-		arena_destroy(arena);
-		SDL_free(file_path_owned);
-		return 1;
+		goto fail_ctx;
 	}
 
 	self->document_arena = arena;
@@ -100,6 +91,32 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 	self->document       = doc;
 	self->view_mode_prev = self->view_mode;
 	return 0;
+
+fail_ctx:
+	document_context_destroy(ctx);
+fail_arena:
+	arena_destroy(arena);
+	SDL_free(file_path_owned);
+	return 1;
+}
+
+/* Consumes path_owned (SDL_strdup or equivalent). */
+static bool app_try_open_pdf_path(App *self, Application *core, char *path_owned, const char *msg_bad_ext)
+{
+	if (!path_has_pdf_extension(path_owned))
+	{
+		fprintf(stderr, "%s\n", msg_bad_ext);
+		SDL_free(path_owned);
+		return false;
+	}
+	if (app_open_pdf(self, core, path_owned) != 0)
+	{
+		fprintf(stderr, "Couldn't load PDF (MuPDF/SDL)\n");
+		self->program_state = LOAD_FILE;
+		return false;
+	}
+	self->program_state = FILE_VIEW;
+	return true;
 }
 
 static void app_toggle_view_mode(App *self)
@@ -230,19 +247,10 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 						fprintf(stderr, "Out of memory copying path\n");
 						break;
 					}
-					if (!path_has_pdf_extension(input_path_copy))
+					if (!app_try_open_pdf_path(self, core, input_path_copy, "Please select a .pdf file"))
 					{
-						fprintf(stderr, "Please select a .pdf file\n");
-						SDL_free(input_path_copy);
 						break;
 					}
-					if (app_open_pdf(self, core, input_path_copy) != 0)
-					{
-						fprintf(stderr, "Couldn't load PDF (MuPDF/SDL)\n");
-						self->program_state = LOAD_FILE;
-						break;
-					}
-					self->program_state = FILE_VIEW;
 				}
 			}
 			break;
@@ -267,19 +275,10 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 				fprintf(stderr, "Out of memory copying path\n");
 				break;
 			}
-			if (!path_has_pdf_extension(file_path_copy))
+			if (!app_try_open_pdf_path(self, core, file_path_copy, "Please drop a .pdf file"))
 			{
-				fprintf(stderr, "Please drop a .pdf file\n");
-				SDL_free(file_path_copy);
 				break;
 			}
-			if (app_open_pdf(self, core, file_path_copy) != 0)
-			{
-				fprintf(stderr, "Couldn't load PDF (MuPDF/SDL)\n");
-				self->program_state = LOAD_FILE;
-				break;
-			}
-			self->program_state = FILE_VIEW;
 		}
 		break;
 		default:

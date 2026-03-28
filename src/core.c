@@ -38,32 +38,22 @@ static inline Clay_Dimensions SDL_MeasureText(Clay_StringSlice text, Clay_TextEl
 bool application_init(Application *core, WindowSpecs specs)
 {
 	memset(core, 0, sizeof *core);
-	bool is_initialized = true;
-
 	core->is_running = false;
 
 	if (!SDL_Init(SDL_INIT_VIDEO))
 	{
 		fprintf(stderr, "Couldn't Init SDL: %s\n", SDL_GetError());
-		application_cleanup(core);
-		core                  = NULL;
-		return is_initialized = false;
+		goto fail;
 	}
-
 	if (!TTF_Init())
 	{
 		fprintf(stderr, "Couldn't Init TTF: %s\n", SDL_GetError());
-		application_cleanup(core);
-		core                  = NULL;
-		return is_initialized = false;
+		goto fail;
 	}
-
 	if (!SDL_CreateWindowAndRenderer(specs.title, specs.width, specs.height, SDL_WINDOW_RESIZABLE, &core->window, &core->renderer))
 	{
 		fprintf(stderr, "Couldn't Init Window and Renderer: %s\n", SDL_GetError());
-		application_cleanup(core);
-		core                  = NULL;
-		return is_initialized = false;
+		goto fail;
 	}
 	SDL_SetRenderVSync(core->renderer, specs.turn_vsync_on);
 	SDL_SetWindowResizable(core->window, true);
@@ -72,39 +62,42 @@ bool application_init(Application *core, WindowSpecs specs)
 	if (core->ttf_renderer == NULL)
 	{
 		fprintf(stderr, "Couldn't Init TTF Renderer: %s\n", SDL_GetError());
-		application_cleanup(core);
-		core                  = NULL;
-		return is_initialized = false;
+		goto fail;
 	}
 
 	core->fonts = calloc(1, sizeof(TTF_Font *));
 	if (!core->fonts)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to allocate memory for the font array: %s", SDL_GetError());
-		application_cleanup(core);
-		return false;
+		goto fail;
 	}
 
 	TTF_Font *font = TTF_OpenFont("res/interface.ttf", 24);
 	if (!font)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to load font: %s", SDL_GetError());
-		application_cleanup(core);
-		return false;
+		goto fail;
 	}
-
 	core->fonts[FONT_ID] = font;
 
-	u64 total_memory_size = Clay_MinMemorySize();
-	core->clay_memory     = (Clay_Arena) {
-	        .memory   = malloc(total_memory_size),
-	        .capacity = total_memory_size};
+	u64 total_memory_size    = Clay_MinMemorySize();
+	core->clay_memory.memory = malloc(total_memory_size);
+	if (!core->clay_memory.memory)
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to allocate Clay arena");
+		goto fail;
+	}
+	core->clay_memory.capacity = total_memory_size;
 
 	Clay_Initialize(core->clay_memory, (Clay_Dimensions) {specs.width, specs.height}, (Clay_ErrorHandler) {handle_clay_errors, NULL});
 	Clay_SetDebugModeEnabled(false);
 	Clay_SetMeasureTextFunction(SDL_MeasureText, core->fonts);
 
-	return is_initialized;
+	return true;
+
+fail:
+	application_cleanup(core);
+	return false;
 }
 
 void application_run(Application *core, App *app)

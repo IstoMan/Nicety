@@ -6,57 +6,38 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void page_init_sdl(Page *page, Application *app)
+typedef float (*document_visible_row_height_fn)(const Document *doc, size_t i, void *ctx);
+
+static int sdl_pixel_format(PixelFormat fmt)
 {
-	SDL_Surface *surface = NULL;
-	SDL_Texture *texture = NULL;
-	int          format;
-
-	if (page->page_bitmap.format == COLOR_FORMAT_RGB)
-	{
-		format = SDL_PIXELFORMAT_RGB24;
-	}
-	else
-	{
-		format = SDL_PIXELFORMAT_RGBA32;
-	}
-	surface = SDL_CreateSurfaceFrom(page->page_bitmap.width, page->page_bitmap.height, format, page->page_bitmap.pixel_data, page->page_bitmap.rows_per_byte);
-	texture = SDL_CreateTextureFromSurface(app->renderer, surface);
-
-	SDL_DestroySurface(surface);
-	page->page_texture = texture;
+	return fmt == COLOR_FORMAT_RGB ? SDL_PIXELFORMAT_RGB24 : SDL_PIXELFORMAT_RGBA32;
 }
 
-static void page_init_thumb_sdl(Page *page, Application *app)
+/* Upload MuPDF bitmap pixels to an SDL texture (resources/Clay.md: imageData for CLAY image elements). */
+static void page_upload_texture(Application *app, const Bitmap *bm, void **out_tex)
 {
-	SDL_Surface *surface = NULL;
-	SDL_Texture *texture = NULL;
-	int          format;
+	SDL_Surface *surface;
+	SDL_Texture *texture;
+	int          format = sdl_pixel_format(bm->format);
 
-	if (page->thumb_bitmap.width == 0 || page->thumb_bitmap.pixel_data == NULL)
-	{
-		return;
-	}
-
-	if (page->thumb_bitmap.format == COLOR_FORMAT_RGB)
-	{
-		format = SDL_PIXELFORMAT_RGB24;
-	}
-	else
-	{
-		format = SDL_PIXELFORMAT_RGBA32;
-	}
-	surface = SDL_CreateSurfaceFrom(page->thumb_bitmap.width, page->thumb_bitmap.height, format, page->thumb_bitmap.pixel_data,
-	                                page->thumb_bitmap.rows_per_byte);
+	surface = SDL_CreateSurfaceFrom(bm->width, bm->height, format, bm->pixel_data, bm->rows_per_byte);
 	texture = SDL_CreateTextureFromSurface(app->renderer, surface);
-
 	SDL_DestroySurface(surface);
-	page->thumb_texture = texture;
+	*out_tex = texture;
 }
 
 static void page_init(Page *page, Application *core)
 {
-	page_init_sdl(page, core);
+	page_upload_texture(core, &page->page_bitmap, &page->page_texture);
+}
+
+static void page_init_thumb(Page *page, Application *app)
+{
+	if (page->thumb_bitmap.width == 0 || page->thumb_bitmap.pixel_data == NULL)
+	{
+		return;
+	}
+	page_upload_texture(app, &page->thumb_bitmap, &page->thumb_texture);
 }
 
 DocumentContext *document_context_init(mem_arena *document_arena, const char *file_path)
@@ -303,51 +284,69 @@ static float document_sidebar_row_height(const Document *doc, size_t i, float sb
 	return sb_inner / layout_aspect;
 }
 
-void document_visible_sidebar_range(const Document *doc, float sb_inner, float scroll_y, float viewport_h, size_t *out_lo,
-                                    size_t *out_hi, float *out_spacer_top, float *out_spacer_bottom)
+static float visible_row_h_sidebar(const Document *doc, size_t i, void *ctx)
+{
+	return document_sidebar_row_height(doc, i, *(float *) ctx);
+}
+
+typedef struct
+{
+	float inner_w;
+	float viewport_h;
+	bool  fit_height_mode;
+} VisibleContentRowCtx;
+
+static float visible_row_h_content(const Document *doc, size_t i, void *ctx)
+{
+	VisibleContentRowCtx *c = ctx;
+	return content_row_height(doc, i, c->inner_w, c->viewport_h, c->fit_height_mode);
+}
+
+/*
+ * Virtualized scroll list: visible index range + spacers so total height matches full layout
+ * (Clay.md scrolling — clip + childOffset; spacers preserve scroll extent).
+ */
+static void document_visible_range_impl(const Document *doc, float scroll_y, float viewport_h, float edge_pad, float inter_gap,
+                                        document_visible_row_height_fn row_h, void *row_ctx, size_t *out_lo, size_t *out_hi,
+                                        float *out_spacer_top, float *out_spacer_bottom)
 {
 	size_t n;
 
 	if (doc == NULL || doc->page_layout_w == NULL || doc->session == NULL)
 	{
-		*out_lo            = 0;
-		*out_hi            = 0;
-		*out_spacer_top    = 0.0f;
-		*out_spacer_bottom = 0.0f;
+		*out_lo = *out_hi = 0;
+		*out_spacer_top = *out_spacer_bottom = 0.0f;
 		return;
 	}
 
 	n = doc->session->total_pages;
 	if (n == 0)
 	{
-		*out_lo            = 0;
-		*out_hi            = 0;
-		*out_spacer_top    = 0.0f;
-		*out_spacer_bottom = 0.0f;
+		*out_lo = *out_hi = 0;
+		*out_spacer_top = *out_spacer_bottom = 0.0f;
 		return;
 	}
 
 	if (viewport_h <= 1.0f)
 	{
-		*out_lo            = 0;
-		*out_hi            = n - 1;
-		*out_spacer_top    = 0.0f;
-		*out_spacer_bottom = 0.0f;
+		*out_lo = 0;
+		*out_hi = n - 1;
+		*out_spacer_top = *out_spacer_bottom = 0.0f;
 		return;
 	}
 
 	{
-		float top = -scroll_y;
-		float bot = top + viewport_h;
-		float o   = NICETY_UI_VIRTUAL_OVERSCAN_PX;
-		float y   = NICETY_DOC_SIDEBAR_PAD;
-		size_t lo = n;
-		size_t hi = 0;
-		size_t i;
+		float   top = -scroll_y;
+		float   bot = top + viewport_h;
+		float   o   = NICETY_UI_VIRTUAL_OVERSCAN_PX;
+		float   y   = edge_pad;
+		size_t  lo  = n;
+		size_t  hi  = 0;
+		size_t  i;
 
 		for (i = 0; i < n; i++)
 		{
-			float h     = document_sidebar_row_height(doc, i, sb_inner);
+			float h     = row_h(doc, i, row_ctx);
 			float y_next = y + h;
 
 			if (y_next > top - o && y < bot + o)
@@ -361,7 +360,7 @@ void document_visible_sidebar_range(const Document *doc, float sb_inner, float s
 			y = y_next;
 			if (i + 1 < n)
 			{
-				y += NICETY_DOC_SIDEBAR_INTER_GAP;
+				y += inter_gap;
 			}
 		}
 
@@ -375,43 +374,39 @@ void document_visible_sidebar_range(const Document *doc, float sb_inner, float s
 		*out_hi = hi;
 
 		{
-			float y_top_row_lo = NICETY_DOC_SIDEBAR_PAD;
-			size_t j;
-
-			for (j = 0; j < lo; j++)
+			float y_top_row_lo = edge_pad;
+			for (size_t j = 0; j < lo; j++)
 			{
-				y_top_row_lo += document_sidebar_row_height(doc, j, sb_inner);
+				y_top_row_lo += row_h(doc, j, row_ctx);
 				if (j + 1 < n)
 				{
-					y_top_row_lo += NICETY_DOC_SIDEBAR_INTER_GAP;
+					y_top_row_lo += inter_gap;
 				}
 			}
-			*out_spacer_top = y_top_row_lo - NICETY_DOC_SIDEBAR_PAD;
+			*out_spacer_top = y_top_row_lo - edge_pad;
 		}
 
 		{
-			float total_h = NICETY_DOC_SIDEBAR_PAD;
-			size_t j;
-
-			for (j = 0; j < n; j++)
+			float total_h = edge_pad;
+			for (size_t j = 0; j < n; j++)
 			{
-				total_h += document_sidebar_row_height(doc, j, sb_inner);
+				total_h += row_h(doc, j, row_ctx);
 				if (j + 1 < n)
 				{
-					total_h += NICETY_DOC_SIDEBAR_INTER_GAP;
+					total_h += inter_gap;
 				}
 			}
-			total_h += NICETY_DOC_SIDEBAR_PAD;
+			total_h += edge_pad;
 
 			{
-				float y_after_hi = NICETY_DOC_SIDEBAR_PAD;
-				for (j = 0; j <= hi; j++)
+				float y_after_hi = edge_pad;
+				for (size_t j = 0; j <= hi; j++)
 				{
 					if (j > 0)
 					{
-						y_after_hi += NICETY_DOC_SIDEBAR_INTER_GAP;
+						y_after_hi += inter_gap;
 					}
-					y_after_hi += document_sidebar_row_height(doc, j, sb_inner);
+					y_after_hi += row_h(doc, j, row_ctx);
 				}
 				*out_spacer_bottom = total_h - y_after_hi;
 			}
@@ -419,123 +414,21 @@ void document_visible_sidebar_range(const Document *doc, float sb_inner, float s
 	}
 }
 
+void document_visible_sidebar_range(const Document *doc, float sb_inner, float scroll_y, float viewport_h, size_t *out_lo,
+                                    size_t *out_hi, float *out_spacer_top, float *out_spacer_bottom)
+{
+	document_visible_range_impl(doc, scroll_y, viewport_h, NICETY_DOC_SIDEBAR_PAD, NICETY_DOC_SIDEBAR_INTER_GAP, visible_row_h_sidebar,
+	                            &sb_inner, out_lo, out_hi, out_spacer_top, out_spacer_bottom);
+}
+
 void document_visible_content_range(const Document *doc, float content_inner_w, float scroll_y, float viewport_w, float viewport_h,
                                     bool fit_height_mode, size_t *out_lo, size_t *out_hi, float *out_spacer_top,
                                     float *out_spacer_bottom)
 {
-	size_t n;
-
+	VisibleContentRowCtx c = {.inner_w = content_inner_w, .viewport_h = viewport_h, .fit_height_mode = fit_height_mode};
 	(void) viewport_w;
-
-	if (doc == NULL || doc->page_layout_w == NULL || doc->session == NULL)
-	{
-		*out_lo            = 0;
-		*out_hi            = 0;
-		*out_spacer_top    = 0.0f;
-		*out_spacer_bottom = 0.0f;
-		return;
-	}
-
-	n = doc->session->total_pages;
-	if (n == 0)
-	{
-		*out_lo            = 0;
-		*out_hi            = 0;
-		*out_spacer_top    = 0.0f;
-		*out_spacer_bottom = 0.0f;
-		return;
-	}
-
-	if (viewport_h <= 1.0f)
-	{
-		*out_lo            = 0;
-		*out_hi            = n - 1;
-		*out_spacer_top    = 0.0f;
-		*out_spacer_bottom = 0.0f;
-		return;
-	}
-
-	{
-		float top = -scroll_y;
-		float bot = top + viewport_h;
-		float o   = NICETY_UI_VIRTUAL_OVERSCAN_PX;
-		float y   = NICETY_DOC_CONTENT_PAD;
-		size_t lo = n;
-		size_t hi = 0;
-		size_t i;
-
-		for (i = 0; i < n; i++)
-		{
-			float h      = content_row_height(doc, i, content_inner_w, viewport_h, fit_height_mode);
-			float y_next = y + h;
-
-			if (y_next > top - o && y < bot + o)
-			{
-				if (lo == n)
-				{
-					lo = i;
-				}
-				hi = i;
-			}
-			y = y_next;
-			if (i + 1 < n)
-			{
-				y += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
-			}
-		}
-
-		if (lo == n)
-		{
-			lo = 0;
-			hi = n - 1;
-		}
-
-		*out_lo = lo;
-		*out_hi = hi;
-
-		{
-			float y_top_row_lo = NICETY_DOC_CONTENT_PAD;
-			size_t j;
-
-			for (j = 0; j < lo; j++)
-			{
-				y_top_row_lo += content_row_height(doc, j, content_inner_w, viewport_h, fit_height_mode);
-				if (j + 1 < n)
-				{
-					y_top_row_lo += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
-				}
-			}
-			*out_spacer_top = y_top_row_lo - NICETY_DOC_CONTENT_PAD;
-		}
-
-		{
-			float total_h = NICETY_DOC_CONTENT_PAD;
-			size_t j;
-
-			for (j = 0; j < n; j++)
-			{
-				total_h += content_row_height(doc, j, content_inner_w, viewport_h, fit_height_mode);
-				if (j + 1 < n)
-				{
-					total_h += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
-				}
-			}
-			total_h += NICETY_DOC_CONTENT_PAD;
-
-			{
-				float y_after_hi = NICETY_DOC_CONTENT_PAD;
-				for (j = 0; j <= hi; j++)
-				{
-					if (j > 0)
-					{
-						y_after_hi += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
-					}
-					y_after_hi += content_row_height(doc, j, content_inner_w, viewport_h, fit_height_mode);
-				}
-				*out_spacer_bottom = total_h - y_after_hi;
-			}
-		}
-	}
+	document_visible_range_impl(doc, scroll_y, viewport_h, NICETY_DOC_CONTENT_PAD, NICETY_DOC_CONTENT_INTER_PAGE_GAP, visible_row_h_content,
+	                            &c, out_lo, out_hi, out_spacer_top, out_spacer_bottom);
 }
 
 Page *document_page_for_index(const Document *doc, size_t page_index)
@@ -607,7 +500,7 @@ int document_measure_pages(DocumentContext *session, Document *doc)
 	return 0;
 }
 
-static void free_rendered_page_textures(Page *pages, size_t count)
+static void pages_destroy_textures(Page *pages, size_t count)
 {
 	for (size_t i = 0; i < count; i++)
 	{
@@ -617,6 +510,11 @@ static void free_rendered_page_textures(Page *pages, size_t count)
 		}
 		SDL_DestroyTexture(pages[i].page_texture);
 	}
+}
+
+static void free_rendered_page_textures(Page *pages, size_t count)
+{
+	pages_destroy_textures(pages, count);
 	free(pages);
 }
 
@@ -730,7 +628,7 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 					thumb_bm.pixel_data    = tpix->samples;
 					thumb_bm.rows_per_byte = tpix->stride;
 					pages[k].thumb_bitmap  = thumb_bm;
-					page_init_thumb_sdl(&pages[k], app);
+					page_init_thumb(&pages[k], app);
 					pages[k].thumb_bitmap.pixel_data = NULL;
 					fz_drop_pixmap(session->ctx, tpix);
 				}
@@ -765,14 +663,7 @@ void document_destroy(DocumentContext *session, Document *document)
 	}
 	if (document->pages != NULL)
 	{
-		for (size_t i = 0; i < document->number_of_pages; i++)
-		{
-			if (document->pages[i].thumb_texture != NULL)
-			{
-				SDL_DestroyTexture(document->pages[i].thumb_texture);
-			}
-			SDL_DestroyTexture(document->pages[i].page_texture);
-		}
+		pages_destroy_textures(document->pages, document->number_of_pages);
 		free(document->pages);
 	}
 	free(document->page_layout_w);

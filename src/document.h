@@ -166,18 +166,14 @@ bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_i
 bool document_remap_scroll_y_for_viewport_change(const Document *doc, float scroll_y_in, float viewport_w_old, float viewport_h_old,
                                                  float viewport_w_new, float viewport_h_new, bool fit_height_mode, float *scroll_y_out);
 
-<<<<<<< HEAD
-=======
 size_t document_page_at_sidebar_scroll_y(const Document *doc, float scroll_y, float sb_inner, float viewport_h);
 
 bool document_remap_sidebar_scroll_y_for_viewport_change(const Document *doc, float scroll_y_in, float sb_inner, float viewport_h_old,
-                                                           float viewport_h_new, float *scroll_y_out);
+                                                        float viewport_h_new, float *scroll_y_out);
 
 bool document_sidebar_scroll_y_from_content_scroll_y(const Document *doc, float content_scroll_y, float content_viewport_w,
-                                                       float content_viewport_h, bool fit_height_mode, float sb_inner, float lane_viewport_h,
-                                                       float *sidebar_scroll_y_out);
-
->>>>>>> sidebar
+                                                    float content_viewport_h, bool fit_height_mode, float sb_inner, float lane_viewport_h,
+                                                    float *sidebar_scroll_y_out);
 Page *document_page_for_index(const Document *doc, size_t page_index);
 
 /*

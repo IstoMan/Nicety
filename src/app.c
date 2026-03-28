@@ -311,7 +311,6 @@ static bool path_has_pdf_extension(const char *path)
 
 static void app_close_document(App *self)
 {
-	self->prev_content_scroll_y  = 0.0f;
 	self->sidebar_viewport_valid = false;
 	if (self->document != NULL)
 	{
@@ -461,19 +460,11 @@ void app_init(App *self)
 	self->document               = NULL;
 	self->document_ctx           = NULL;
 	self->document_arena         = NULL;
-<<<<<<< HEAD
 	self->sidebar_scroll_valid   = false;
 	self->content_scroll_valid   = false;
 	self->content_viewport_valid = false;
+	self->sidebar_viewport_valid = false;
 	self->sidebar_visible        = true;
-=======
-	self->sidebar_scroll_valid     = false;
-	self->content_scroll_valid     = false;
-	self->content_viewport_valid   = false;
-	self->sidebar_viewport_valid   = false;
-	self->prev_content_scroll_y    = 0.0f;
-	self->sidebar_visible          = true;
->>>>>>> sidebar
 	page_loader_init(self);
 }
 

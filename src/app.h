@@ -37,6 +37,8 @@ typedef struct App
 	float                   content_viewport_width;
 	float                   content_viewport_height;
 	bool                    content_viewport_valid;
+	float                   sidebar_viewport_height;
+	bool                    sidebar_viewport_valid;
 	bool                    sidebar_visible;
 
 	/* Async page window raster (background thread); doc_load_token invalidates in-flight work on close/reopen. */

@@ -279,11 +279,8 @@ static float inner_w_from_viewport_w(float viewport_w)
 	return inner_w < 1.0f ? 1.0f : inner_w;
 }
 
-<<<<<<< HEAD
-=======
 static float document_sidebar_row_height(const Document *doc, size_t i, float sb_inner);
 
->>>>>>> sidebar
 /*
  * Map scroll_y so the viewport center stays at the same fraction along the same page when layout changes.
  * Old vs new may differ in viewport size and/or fit-height vs fill.
@@ -431,8 +428,6 @@ bool document_remap_scroll_y_for_viewport_change(const Document *doc, float scro
 	                                       fit_height_mode, scroll_y_out);
 }
 
-<<<<<<< HEAD
-=======
 size_t document_page_at_sidebar_scroll_y(const Document *doc, float scroll_y, float sb_inner, float viewport_h)
 {
 	if (doc == NULL || doc->session == NULL || doc->page_layout_w == NULL || doc->session->total_pages == 0)
@@ -722,7 +717,6 @@ bool document_sidebar_scroll_y_from_content_scroll_y(const Document *doc, float 
 	return true;
 }
 
->>>>>>> sidebar
 static float document_sidebar_row_height(const Document *doc, size_t i, float sb_inner)
 {
 	float layout_aspect = doc->page_layout_w[i] / doc->page_layout_h[i];

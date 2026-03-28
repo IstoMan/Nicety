@@ -427,6 +427,11 @@ static void ui_doc_capture_scroll_state(App *app)
 		app->sidebar_scroll_offset = *sidebarData.scrollPosition;
 		app->sidebar_scroll_valid  = true;
 	}
+	if (sidebarData.found)
+	{
+		app->sidebar_viewport_height = sidebarData.scrollContainerDimensions.height;
+		app->sidebar_viewport_valid  = true;
+	}
 	Clay_ScrollContainerData contentData = Clay_GetScrollContainerData(CLAY_ID("Content"));
 	if (contentData.found && contentData.scrollPosition)
 	{
@@ -477,14 +482,6 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app, float lay
                                   },
 		                      })
 		{
-			Clay_ScrollContainerData sidebarData   = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
-			Clay_Vector2             sidebarOffset = ui_scroll_persist(sidebarData, app->sidebar_scroll_valid, app->sidebar_scroll_offset);
-
-			if (app->sidebar_visible)
-			{
-				ui_doc_sidebar(&doc, sidebarOffset, sidebarData, total_pages);
-			}
-
 			Clay_ScrollContainerData contentData = Clay_GetScrollContainerData(CLAY_ID("Content"));
 
 			if (doc.session != NULL && doc.page_layout_w != NULL && total_pages > 0 && app->content_scroll_valid && app->content_viewport_valid &&
@@ -508,6 +505,40 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app, float lay
 			float        content_inner_w =
 			    pred_w > 2.0f * NICETY_DOC_CONTENT_PAD ? (pred_w - 2.0f * NICETY_DOC_CONTENT_PAD) : 1.0f;
 			float content_viewport_w = pred_w > 1.0f ? pred_w : 1.0f;
+
+			Clay_ScrollContainerData sidebarData = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
+			Clay_Vector2           sidebarOffset;
+			if (app->sidebar_visible && doc.session != NULL && doc.page_layout_w != NULL && total_pages > 0 && app->content_scroll_valid &&
+			    app->content_viewport_valid)
+			{
+				float sb_inner = NICETY_DOC_SIDEBAR_OUTER_W - 2.0f * NICETY_DOC_SIDEBAR_PAD;
+				bool  fit      = (app->view_mode == VIEW_MODE_FIT_HEIGHT);
+				float lane_h   = (sidebarData.found && sidebarData.scrollContainerDimensions.height > 1.0f)
+				                     ? sidebarData.scrollContainerDimensions.height
+				                     : pred_h;
+				float sb_y;
+				if (document_sidebar_scroll_y_from_content_scroll_y(&doc, contentOffset.y, content_viewport_w, pred_h, fit, sb_inner, lane_h, &sb_y))
+				{
+					sidebarOffset = (Clay_Vector2) {0.0f, sb_y};
+					if (sidebarData.found && sidebarData.scrollPosition)
+					{
+						sidebarData.scrollPosition->y = sb_y;
+					}
+				}
+				else
+				{
+					sidebarOffset = ui_scroll_persist(sidebarData, app->sidebar_scroll_valid, app->sidebar_scroll_offset);
+				}
+			}
+			else
+			{
+				sidebarOffset = ui_scroll_persist(sidebarData, app->sidebar_scroll_valid, app->sidebar_scroll_offset);
+			}
+
+			if (app->sidebar_visible)
+			{
+				ui_doc_sidebar(&doc, sidebarOffset, sidebarData, total_pages);
+			}
 
 			ui_doc_content(&doc, app, contentOffset, content_inner_w, content_viewport_w, pred_h, total_pages);
 		}

@@ -189,7 +189,7 @@ void SDL_Clay_RenderClayCommands(Clay_SDL3RendererData *rendererData, Clay_Rende
 				TTF_SetFontSize(font, config->fontSize);
 				TTF_Text *text = TTF_CreateText(rendererData->textEngine, font, config->stringContents.chars, config->stringContents.length);
 				TTF_SetTextColor(text, config->textColor.r, config->textColor.g, config->textColor.b, config->textColor.a);
-				TTF_DrawRendererText(text, rect.x, rect.y);
+				TTF_DrawRendererText(text, SDL_roundf(bounding_box.x), SDL_roundf(bounding_box.y));
 				TTF_DestroyText(text);
 			}
 			break;

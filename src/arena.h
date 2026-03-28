@@ -20,6 +20,7 @@ typedef struct
 
 mem_arena *arena_init(u64 size);
 void       arena_destroy(mem_arena *arena);
+b8         arena_can_push(mem_arena *arena, u64 size);
 void      *arena_push(mem_arena *arena, u64 size, b8 zero_it);
 void       arena_pop(mem_arena *arena, u64 size);
 void       arena_pop_to(mem_arena *arena, u64 till);

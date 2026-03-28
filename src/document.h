@@ -62,6 +62,10 @@ typedef struct
 	float           *page_layout_w;
 	float           *page_layout_h;
 	const char      *file_path;
+	/* Arena bump checkpoints: after DocumentContext+Document, before layout; after layout, before Page window array. */
+	u64              arena_checkpoint_after_document;
+	u64              arena_checkpoint_before_pages;
+	b8               page_layout_heap;
 } Document;
 
 #define NICETY_PAGE_WINDOW_RADIUS 2

@@ -50,11 +50,18 @@ bool application_init(Application *core, WindowSpecs specs)
 		fprintf(stderr, "Couldn't Init TTF: %s\n", SDL_GetError());
 		goto fail;
 	}
-	if (!SDL_CreateWindowAndRenderer(specs.title, specs.width, specs.height, SDL_WINDOW_RESIZABLE, &core->window, &core->renderer))
+	if (!SDL_CreateWindowAndRenderer(specs.title, specs.width, specs.height,
+	                                 SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &core->window, &core->renderer))
 	{
 		fprintf(stderr, "Couldn't Init Window and Renderer: %s\n", SDL_GetError());
 		goto fail;
 	}
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+	if (!SDL_SetDefaultTextureScaleMode(core->renderer, SDL_SCALEMODE_NEAREST))
+	{
+		fprintf(stderr, "SDL_SetDefaultTextureScaleMode: %s\n", SDL_GetError());
+	}
+#endif
 	SDL_SetRenderVSync(core->renderer, specs.turn_vsync_on);
 	SDL_SetWindowResizable(core->window, true);
 
@@ -71,13 +78,13 @@ bool application_init(Application *core, WindowSpecs specs)
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to allocate memory for the font array: %s", SDL_GetError());
 		goto fail;
 	}
-
-	TTF_Font *font = TTF_OpenFont("res/interface.ttf", 24);
+	TTF_Font *font = TTF_OpenFont("res/interface.ttf", 50);
 	if (!font)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to load font: %s", SDL_GetError());
 		goto fail;
 	}
+	TTF_SetFontHinting(font, TTF_HINTING_LIGHT_SUBPIXEL);
 	core->fonts[FONT_ID] = font;
 
 	u64 total_memory_size    = Clay_MinMemorySize();
@@ -89,7 +96,14 @@ bool application_init(Application *core, WindowSpecs specs)
 	}
 	core->clay_memory.capacity = total_memory_size;
 
-	Clay_Initialize(core->clay_memory, (Clay_Dimensions) {specs.width, specs.height}, (Clay_ErrorHandler) {handle_clay_errors, NULL});
+	{
+		int clay_w = (int) specs.width, clay_h = (int) specs.height;
+		if (!SDL_GetRenderOutputSize(core->renderer, &clay_w, &clay_h))
+		{
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL_GetRenderOutputSize failed: %s", SDL_GetError());
+		}
+		Clay_Initialize(core->clay_memory, (Clay_Dimensions) {(float) clay_w, (float) clay_h}, (Clay_ErrorHandler) {handle_clay_errors, NULL});
+	}
 	Clay_SetDebugModeEnabled(false);
 	Clay_SetMeasureTextFunction(SDL_MeasureText, core->fonts);
 

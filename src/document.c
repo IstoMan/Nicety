@@ -23,6 +23,10 @@ static void page_upload_texture(Application *app, const Bitmap *bm, void **out_t
 	surface = SDL_CreateSurfaceFrom(bm->width, bm->height, format, bm->pixel_data, bm->rows_per_byte);
 	texture = SDL_CreateTextureFromSurface(app->renderer, surface);
 	SDL_DestroySurface(surface);
+	if (texture != NULL)
+	{
+		SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+	}
 	*out_tex = texture;
 }
 
@@ -447,6 +451,18 @@ Page *document_page_for_index(const Document *doc, size_t page_index)
 	return NULL;
 }
 
+static b8 arena_can_push_two_float_arrays(mem_arena *a, size_t n)
+{
+	u64 p   = a->pos;
+	u64 a1  = ALIGN_UP_POW2(p, ARENA_ALIGN);
+	u64 end = a1 + (u64) n * sizeof(float);
+	a1      = ALIGN_UP_POW2(end, ARENA_ALIGN);
+	end     = a1 + (u64) n * sizeof(float);
+	return end <= a->capacity;
+}
+
+static void pages_destroy_textures(Page *pages, size_t count);
+
 int document_measure_pages(DocumentContext *session, Document *doc)
 {
 	if (session == NULL || doc == NULL)
@@ -454,27 +470,54 @@ int document_measure_pages(DocumentContext *session, Document *doc)
 		return 1;
 	}
 
-	free(doc->page_layout_w);
-	free(doc->page_layout_h);
+	mem_arena *arena = session->document_arena;
+
+	if (doc->pages != NULL)
+	{
+		pages_destroy_textures(doc->pages, doc->number_of_pages);
+		doc->pages           = NULL;
+		doc->number_of_pages = 0;
+	}
+	arena_pop_to(arena, doc->arena_checkpoint_after_document);
+	if (doc->page_layout_heap)
+	{
+		free(doc->page_layout_w);
+		free(doc->page_layout_h);
+		doc->page_layout_heap = false;
+	}
 	doc->page_layout_w = NULL;
 	doc->page_layout_h = NULL;
 
 	if (session->total_pages == 0)
 	{
+		doc->arena_checkpoint_before_pages = doc->arena_checkpoint_after_document;
 		return 0;
 	}
 
-	size_t n           = session->total_pages;
-	doc->page_layout_w = malloc(n * sizeof(float));
-	doc->page_layout_h = malloc(n * sizeof(float));
-	if (doc->page_layout_w == NULL || doc->page_layout_h == NULL)
+	size_t n = session->total_pages;
+
+	if (arena_can_push_two_float_arrays(arena, n))
 	{
-		free(doc->page_layout_w);
-		free(doc->page_layout_h);
-		doc->page_layout_w = NULL;
-		doc->page_layout_h = NULL;
-		return 1;
+		doc->page_layout_w = PUSH_ARRAY(arena, float, n);
+		doc->page_layout_h = PUSH_ARRAY(arena, float, n);
+		doc->page_layout_heap = false;
 	}
+	else
+	{
+		doc->page_layout_w = malloc(n * sizeof(float));
+		doc->page_layout_h = malloc(n * sizeof(float));
+		if (doc->page_layout_w == NULL || doc->page_layout_h == NULL)
+		{
+			free(doc->page_layout_w);
+			free(doc->page_layout_h);
+			doc->page_layout_w = NULL;
+			doc->page_layout_h = NULL;
+			return 1;
+		}
+		doc->page_layout_heap = true;
+	}
+
+	doc->arena_checkpoint_before_pages = arena->pos;
 
 	for (size_t i = 0; i < n; i++)
 	{
@@ -512,10 +555,17 @@ static void pages_destroy_textures(Page *pages, size_t count)
 	}
 }
 
-static void free_rendered_page_textures(Page *pages, size_t count)
+static void release_page_window(Document *doc, Page *pages, size_t texture_count)
 {
-	pages_destroy_textures(pages, count);
-	free(pages);
+	if (pages == NULL)
+	{
+		return;
+	}
+	pages_destroy_textures(pages, texture_count);
+	if (doc->session != NULL && doc->session->document_arena != NULL)
+	{
+		arena_pop_to(doc->session->document_arena, doc->arena_checkpoint_before_pages);
+	}
 }
 
 int document_load_page_window(DocumentContext *session, Application *app, size_t center, size_t radius, const char *file_path,
@@ -525,6 +575,8 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 	{
 		return 1;
 	}
+
+	mem_arena *arena = session->document_arena;
 
 	if (session->total_pages == 0)
 	{
@@ -555,17 +607,18 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 
 	if (doc->pages != NULL)
 	{
-		free_rendered_page_textures(doc->pages, doc->number_of_pages);
+		pages_destroy_textures(doc->pages, doc->number_of_pages);
+		arena_pop_to(arena, doc->arena_checkpoint_before_pages);
 		doc->pages           = NULL;
 		doc->number_of_pages = 0;
 	}
 
 	size_t count = till - from + 1;
-	Page  *pages = calloc(count, sizeof *pages);
-	if (pages == NULL)
+	if (!arena_can_push(arena, (u64) count * sizeof(Page)))
 	{
 		return 1;
 	}
+	Page *pages = PUSH_ARRAY(arena, Page, count);
 
 	fz_page   *page = NULL;
 	fz_pixmap *pix  = NULL;
@@ -592,7 +645,7 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 			fprintf(stderr, "Unsupported pixel format\n");
 			fz_drop_pixmap(session->ctx, pix);
 			fz_drop_page(session->ctx, page);
-			free_rendered_page_textures(pages, k);
+			release_page_window(doc, pages, k);
 			return 1;
 		}
 
@@ -664,10 +717,11 @@ void document_destroy(DocumentContext *session, Document *document)
 	if (document->pages != NULL)
 	{
 		pages_destroy_textures(document->pages, document->number_of_pages);
-		free(document->pages);
 	}
-	free(document->page_layout_w);
-	free(document->page_layout_h);
+	if (document->page_layout_heap)
+	{
+		free(document->page_layout_w);
+		free(document->page_layout_h);
+	}
 	SDL_free((void *) document->file_path);
-	free(document);
 }

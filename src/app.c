@@ -65,18 +65,13 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 		goto fail_arena;
 	}
 
-	doc = malloc(sizeof(Document));
-	if (doc == NULL)
-	{
-		goto fail_ctx;
-	}
-
+	doc = PUSH_STRUCT(arena, Document);
 	memset(doc, 0, sizeof *doc);
-	doc->session = ctx;
+	doc->session                       = ctx;
+	doc->arena_checkpoint_after_document = arena->pos;
 
 	if (document_measure_pages(ctx, doc) != 0)
 	{
-		free(doc);
 		goto fail_ctx;
 	}
 

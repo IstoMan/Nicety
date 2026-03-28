@@ -16,6 +16,12 @@ void arena_destroy(mem_arena *arena)
 	free(arena);
 }
 
+b8 arena_can_push(mem_arena *arena, u64 size)
+{
+	u64 pos_aligned = ALIGN_UP_POW2(arena->pos, ARENA_ALIGN);
+	return pos_aligned + size <= arena->capacity;
+}
+
 void *arena_push(mem_arena *arena, u64 size, b8 zero_it)
 {
 	u64 pos_aligned = ALIGN_UP_POW2(arena->pos, ARENA_ALIGN);
@@ -50,5 +56,5 @@ void arena_pop_to(mem_arena *arena, u64 till)
 
 void arena_clear(mem_arena *arena)
 {
-	arena_pop(arena, ARENA_BASE_POS);
+	arena_pop_to(arena, ARENA_BASE_POS);
 }

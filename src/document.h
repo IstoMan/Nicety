@@ -39,13 +39,13 @@ typedef struct
 } DocumentContext;
 
 /* Must match Clay padding / gaps in ui_document_view (Content column: image-only rows). */
-#define NICETY_DOC_CONTENT_PAD            20.0f
+#define NICETY_DOC_CONTENT_PAD 20.0f
 #define NICETY_DOC_CONTENT_INTER_PAGE_GAP 20.0f
 #define NICETY_DOC_FIT_HEIGHT_TOP_RESERVE 40.0f
 
 /* Sidebar column; must match Clay Sidebar in ui_document_view. */
-#define NICETY_DOC_SIDEBAR_OUTER_W   150.0f
-#define NICETY_DOC_SIDEBAR_PAD       10.0f
+#define NICETY_DOC_SIDEBAR_OUTER_W 150.0f
+#define NICETY_DOC_SIDEBAR_PAD 10.0f
 #define NICETY_DOC_SIDEBAR_INTER_GAP 10.0f
 
 typedef struct
@@ -64,9 +64,9 @@ typedef struct
 DocumentContext *document_context_init(mem_arena *document_arena, const char *file_path);
 void             document_context_destroy(DocumentContext *session);
 
-int  document_measure_pages(DocumentContext *session, Document *doc);
-int  document_load_page_window(DocumentContext *session, Application *app, size_t center, size_t radius,
-                               const char *file_path, Document *doc);
+int document_measure_pages(DocumentContext *session, Document *doc);
+int document_load_page_window(DocumentContext *session, Application *app, size_t center, size_t radius,
+                              const char *file_path, Document *doc);
 
 size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float viewport_w, float viewport_h, bool fit_height_mode);
 

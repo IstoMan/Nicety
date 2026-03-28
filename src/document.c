@@ -105,7 +105,7 @@ size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float view
 		return 0;
 	}
 
-	size_t total = doc->session->total_pages;
+	size_t total   = doc->session->total_pages;
 	float  inner_w = viewport_w - 2.0f * NICETY_DOC_CONTENT_PAD;
 	if (inner_w < 1.0f)
 	{
@@ -173,7 +173,7 @@ int document_measure_pages(DocumentContext *session, Document *doc)
 		return 0;
 	}
 
-	size_t n         = session->total_pages;
+	size_t n           = session->total_pages;
 	doc->page_layout_w = malloc(n * sizeof(float));
 	doc->page_layout_h = malloc(n * sizeof(float));
 	if (doc->page_layout_w == NULL || doc->page_layout_h == NULL)
@@ -187,9 +187,9 @@ int document_measure_pages(DocumentContext *session, Document *doc)
 
 	for (size_t i = 0; i < n; i++)
 	{
-		fz_page *page = fz_load_page(session->ctx, session->doc, (int) i);
+		fz_page *page   = fz_load_page(session->ctx, session->doc, (int) i);
 		fz_rect  bounds = fz_bound_page(session->ctx, page);
-		fz_irect ibox = fz_round_rect(bounds);
+		fz_irect ibox   = fz_round_rect(bounds);
 		fz_drop_page(session->ctx, page);
 
 		float w = (float) (ibox.x1 - ibox.x0);

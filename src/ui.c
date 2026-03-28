@@ -5,6 +5,9 @@
  * Scroll areas follow Clay’s pattern: clip + childOffset on the scroll parent, children laid out
  * with TOP_TO_BOTTOM and childGap. See resources/Clay.md ("Scrolling Elements") and
  * Clay_GetScrollContainerData (persist last frame’s offset so layout matches internal scroll state).
+ *
+ * Helpers named ui_doc_* that emit CLAY(...) must only be called between Clay_BeginLayout and
+ * Clay_EndLayout. ui_doc_capture_scroll_state runs after Clay_EndLayout.
  */
 
 static const int FONT_ID_0 = 0;
@@ -53,9 +56,221 @@ static float sidebar_inner_width(void)
 	return NICETY_DOC_SIDEBAR_OUTER_W - 2.0f * NICETY_DOC_SIDEBAR_PAD;
 }
 
-Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
+static void ui_doc_header(App *app)
+{
+	CLAY(CLAY_ID("Header"), {
+	                            .backgroundColor = {128, 135, 162, 255},
+	                            .layout          = {
+	                                .sizing = {
+	                                    .height = CLAY_SIZING_FIXED(40),
+	                                    .width  = CLAY_SIZING_GROW(0),
+	                                },
+	                                .padding         = CLAY_PADDING_ALL(8),
+	                                .childAlignment  = {.y = CLAY_ALIGN_Y_CENTER},
+	                                .layoutDirection = CLAY_LEFT_TO_RIGHT,
+	                            },
+	                        })
+	{
+		CLAY(CLAY_ID("ViewModeBtn"), {
+		                                 .backgroundColor = Clay_Hovered() ? (Clay_Color) {150, 160, 200, 255} : (Clay_Color) {100, 110, 150, 255},
+		                                 .layout          = {.padding = CLAY_PADDING_ALL(4)},
+		                                 .cornerRadius    = CLAY_CORNER_RADIUS(4),
+		                             })
+		{
+			Clay_OnHover(toggle_view_mode, (intptr_t) app);
+			CLAY_TEXT(app->view_mode == VIEW_MODE_FILL ? CLAY_STRING("Mode: Fill") : CLAY_STRING("Mode: Fit"), CLAY_TEXT_CONFIG({
+			                                                                                                       .fontId    = FONT_ID_0,
+			                                                                                                       .fontSize  = 16,
+			                                                                                                       .textColor = {255, 255, 255, 255},
+			                                                                                                   }));
+		}
+	}
+}
+
+static void ui_doc_sidebar(const Document *doc, Clay_Vector2 sidebarOffset, size_t total_pages)
 {
 	size_t i;
+	float  sb_inner = sidebar_inner_width();
+
+	CLAY(CLAY_ID("Sidebar"), {
+	                             .backgroundColor = {54, 58, 79, 255},
+	                             .clip            = {.vertical = true, .childOffset = sidebarOffset},
+	                             .layout          = {
+	                                 .sizing = {
+	                                     .height = CLAY_SIZING_GROW(0),
+	                                     .width  = CLAY_SIZING_FIXED(NICETY_DOC_SIDEBAR_OUTER_W),
+	                                 },
+	                                 .layoutDirection = CLAY_TOP_TO_BOTTOM,
+	                                 .childGap        = NICETY_DOC_SIDEBAR_INTER_GAP,
+	                                 .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
+	                                 .padding         = CLAY_PADDING_ALL(NICETY_DOC_SIDEBAR_PAD),
+	                             },
+	                         })
+	{
+		for (i = 0; i < total_pages; i++)
+		{
+			float layout_aspect = doc->page_layout_w[i] / doc->page_layout_h[i];
+			float img_w         = sb_inner;
+			float img_h         = img_w / layout_aspect;
+			Page *p             = document_page_for_index(doc, i);
+
+			if (p != NULL)
+			{
+				CLAY_AUTO_ID({
+				    .layout = {
+				        .sizing = {
+				            .width  = CLAY_SIZING_FIXED(img_w),
+				            .height = CLAY_SIZING_FIXED(img_h),
+				        },
+				        .layoutDirection = CLAY_TOP_TO_BOTTOM,
+				    },
+				    .aspectRatio = {(float) p->page_bitmap.width / (float) p->page_bitmap.height},
+				    .image       = {
+				        .imageData = p->page_texture,
+				    },
+				    .border = {
+				        .width = CLAY_BORDER_ALL(1),
+				        .color = {138, 173, 244, 255},
+				    },
+				})
+				{}
+			}
+			else
+			{
+				CLAY_AUTO_ID({
+				    .layout = {
+				        .sizing = {
+				            .width  = CLAY_SIZING_FIXED(img_w),
+				            .height = CLAY_SIZING_FIXED(img_h),
+				        },
+				        .layoutDirection = CLAY_TOP_TO_BOTTOM,
+				    },
+				    .backgroundColor = {40, 42, 58, 255},
+				    .border          = {
+				        .width = CLAY_BORDER_ALL(1),
+				        .color = {80, 85, 110, 255},
+				    },
+				})
+				{}
+			}
+		}
+	}
+}
+
+static void ui_doc_content(const Document *doc, App *app, Clay_ScrollContainerData contentData, Clay_Vector2 contentOffset,
+                           float content_inner_w, size_t total_pages)
+{
+	size_t i;
+
+	CLAY(CLAY_ID("Content"), {
+	                             .backgroundColor = {24, 25, 38, 255},
+	                             .clip            = {.vertical = true, .childOffset = contentOffset},
+	                             .layout          = {
+	                                 .layoutDirection = CLAY_TOP_TO_BOTTOM,
+	                                 .sizing          = grow_sizing,
+	                                 .padding         = CLAY_PADDING_ALL(NICETY_DOC_CONTENT_PAD),
+	                                 .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
+	                                 .childGap        = NICETY_DOC_CONTENT_INTER_PAGE_GAP,
+	                             },
+
+	                         })
+	{
+		for (i = 0; i < total_pages; i++)
+		{
+			float layout_aspect = doc->page_layout_w[i] / doc->page_layout_h[i];
+			Page *p             = document_page_for_index(doc, i);
+
+			Clay_Sizing pageSizing;
+			if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
+			{
+				float target_height = contentData.scrollContainerDimensions.height - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
+				float aspect_use    = p ? ((float) p->page_bitmap.width / (float) p->page_bitmap.height) : layout_aspect;
+				pageSizing          = (Clay_Sizing) {
+				    .width  = CLAY_SIZING_FIXED(target_height * aspect_use),
+				    .height = CLAY_SIZING_FIXED(target_height),
+				};
+			}
+			else
+			{
+				pageSizing = (Clay_Sizing) {
+				    .width  = CLAY_SIZING_GROW(0),
+				    .height = CLAY_SIZING_GROW(0),
+				};
+			}
+
+			if (p != NULL)
+			{
+				CLAY_AUTO_ID({
+				    .layout = {
+				        .sizing = pageSizing,
+				    },
+				    .aspectRatio = {(float) p->page_bitmap.width / (float) p->page_bitmap.height},
+				    .image       = {
+				        .imageData = p->page_texture,
+				    },
+				    .border = {
+				        .width = CLAY_BORDER_ALL(1),
+				        .color = {138, 173, 244, 255},
+				    },
+				})
+				{}
+			}
+			else
+			{
+				float ph = content_inner_w / layout_aspect;
+				if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
+				{
+					ph = contentData.scrollContainerDimensions.height - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
+				}
+				float pw = ph * layout_aspect;
+				CLAY_AUTO_ID({
+				    .layout = {
+				        .sizing = {
+				            .width  = CLAY_SIZING_FIXED(pw),
+				            .height = CLAY_SIZING_FIXED(ph),
+				        },
+				    },
+				    .backgroundColor = {40, 42, 58, 255},
+				    .border          = {
+				        .width = CLAY_BORDER_ALL(1),
+				        .color = {80, 85, 110, 255},
+				    },
+				})
+				{}
+			}
+		}
+	}
+}
+
+static void ui_doc_capture_scroll_state(App *app)
+{
+	if (app->program_state != FILE_VIEW)
+	{
+		return;
+	}
+
+	Clay_ScrollContainerData sidebarData = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
+	if (sidebarData.found && sidebarData.scrollPosition)
+	{
+		app->sidebar_scroll_offset = *sidebarData.scrollPosition;
+		app->sidebar_scroll_valid  = true;
+	}
+	Clay_ScrollContainerData contentData = Clay_GetScrollContainerData(CLAY_ID("Content"));
+	if (contentData.found && contentData.scrollPosition)
+	{
+		app->content_scroll_offset = *contentData.scrollPosition;
+		app->content_scroll_valid  = true;
+	}
+	if (contentData.found)
+	{
+		app->content_viewport_width  = contentData.scrollContainerDimensions.width;
+		app->content_viewport_height = contentData.scrollContainerDimensions.height;
+		app->content_viewport_valid  = true;
+	}
+}
+
+Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
+{
 	size_t total_pages;
 
 	if (doc.session == NULL)
@@ -78,33 +293,7 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 	                           },
 	                       })
 	{
-		CLAY(CLAY_ID("Header"), {
-		                            .backgroundColor = {128, 135, 162, 255},
-		                            .layout          = {
-		                                .sizing = {
-		                                    .height = CLAY_SIZING_FIXED(40),
-		                                    .width  = CLAY_SIZING_GROW(0),
-		                                },
-		                                .padding         = CLAY_PADDING_ALL(8),
-		                                .childAlignment  = {.y = CLAY_ALIGN_Y_CENTER},
-		                                .layoutDirection = CLAY_LEFT_TO_RIGHT,
-		                            },
-		                        })
-		{
-			CLAY(CLAY_ID("ViewModeBtn"), {
-			                                 .backgroundColor = Clay_Hovered() ? (Clay_Color) {150, 160, 200, 255} : (Clay_Color) {100, 110, 150, 255},
-			                                 .layout          = {.padding = CLAY_PADDING_ALL(4)},
-			                                 .cornerRadius    = CLAY_CORNER_RADIUS(4),
-			                             })
-			{
-				Clay_OnHover(toggle_view_mode, (intptr_t) app);
-				CLAY_TEXT(app->view_mode == VIEW_MODE_FILL ? CLAY_STRING("Mode: Fill") : CLAY_STRING("Mode: Fit"), CLAY_TEXT_CONFIG({
-				                                                                                                       .fontId    = FONT_ID_0,
-				                                                                                                       .fontSize  = 16,
-				                                                                                                       .textColor = {255, 255, 255, 255},
-				                                                                                                   }));
-			}
-		}
+		ui_doc_header(app);
 		CLAY(CLAY_ID("Body"), {
 		                          .backgroundColor = base_color,
 		                          .layout          = {
@@ -115,70 +304,8 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 		{
 			Clay_ScrollContainerData sidebarData   = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
 			Clay_Vector2             sidebarOffset = (sidebarData.found && sidebarData.scrollPosition) ? *sidebarData.scrollPosition : (app->sidebar_scroll_valid ? app->sidebar_scroll_offset : (Clay_Vector2) {0, 0});
-			float                    sb_inner      = sidebar_inner_width();
-			CLAY(CLAY_ID("Sidebar"), {
-			                             .backgroundColor = {54, 58, 79, 255},
-			                             .clip            = {.vertical = true, .childOffset = sidebarOffset},
-			                             .layout          = {
-			                                 .sizing = {
-			                                     .height = CLAY_SIZING_GROW(0),
-			                                     .width  = CLAY_SIZING_FIXED(NICETY_DOC_SIDEBAR_OUTER_W),
-			                                 },
-			                                 .layoutDirection = CLAY_TOP_TO_BOTTOM,
-			                                 .childGap        = NICETY_DOC_SIDEBAR_INTER_GAP,
-			                                 .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
-			                                 .padding         = CLAY_PADDING_ALL(NICETY_DOC_SIDEBAR_PAD),
-			                             },
-			                         })
-			{
-				for (i = 0; i < total_pages; i++)
-				{
-					float    layout_aspect = doc.page_layout_w[i] / doc.page_layout_h[i];
-					float    img_w         = sb_inner;
-					float    img_h         = img_w / layout_aspect;
-					Page    *p             = document_page_for_index(&doc, i);
 
-					if (p != NULL)
-					{
-						CLAY_AUTO_ID({
-						    .layout = {
-						        .sizing = {
-						            .width  = CLAY_SIZING_FIXED(img_w),
-						            .height = CLAY_SIZING_FIXED(img_h),
-						        },
-						        .layoutDirection = CLAY_TOP_TO_BOTTOM,
-						    },
-						    .aspectRatio = {(float) p->page_bitmap.width / (float) p->page_bitmap.height},
-						    .image       = {
-						        .imageData = p->page_texture,
-						    },
-						    .border = {
-						        .width = CLAY_BORDER_ALL(1),
-						        .color = {138, 173, 244, 255},
-						    },
-						})
-						{}
-					}
-					else
-					{
-						CLAY_AUTO_ID({
-						    .layout = {
-						        .sizing = {
-						            .width  = CLAY_SIZING_FIXED(img_w),
-						            .height = CLAY_SIZING_FIXED(img_h),
-						        },
-						        .layoutDirection = CLAY_TOP_TO_BOTTOM,
-						    },
-						    .backgroundColor = {40, 42, 58, 255},
-						    .border          = {
-						        .width = CLAY_BORDER_ALL(1),
-						        .color = {80, 85, 110, 255},
-						    },
-						})
-						{}
-					}
-				}
-			}
+			ui_doc_sidebar(&doc, sidebarOffset, total_pages);
 
 			Clay_ScrollContainerData contentData   = Clay_GetScrollContainerData(CLAY_ID("Content"));
 			Clay_Vector2             contentOffset = (contentData.found && contentData.scrollPosition) ? *contentData.scrollPosition : (app->content_scroll_valid ? app->content_scroll_offset : (Clay_Vector2) {0, 0});
@@ -187,110 +314,13 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 			        ? (contentData.scrollContainerDimensions.width - 2.0f * NICETY_DOC_CONTENT_PAD)
 			        : 1.0f;
 
-			CLAY(CLAY_ID("Content"), {
-			                             .backgroundColor = {24, 25, 38, 255},
-			                             .clip            = {.vertical = true, .childOffset = contentOffset},
-			                             .layout          = {
-			                                 .layoutDirection = CLAY_TOP_TO_BOTTOM,
-			                                 .sizing          = grow_sizing,
-			                                 .padding         = CLAY_PADDING_ALL(NICETY_DOC_CONTENT_PAD),
-			                                 .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
-			                                 .childGap        = NICETY_DOC_CONTENT_INTER_PAGE_GAP,
-			                             },
-
-			                         })
-			{
-				for (i = 0; i < total_pages; i++)
-				{
-					float    layout_aspect = doc.page_layout_w[i] / doc.page_layout_h[i];
-					Page    *p             = document_page_for_index(&doc, i);
-
-					Clay_Sizing pageSizing;
-					if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
-					{
-						float target_height = contentData.scrollContainerDimensions.height - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
-						float aspect_use    = p ? ((float) p->page_bitmap.width / (float) p->page_bitmap.height) : layout_aspect;
-						pageSizing          = (Clay_Sizing) {
-						    .width  = CLAY_SIZING_FIXED(target_height * aspect_use),
-						    .height = CLAY_SIZING_FIXED(target_height),
-						};
-					}
-					else
-					{
-						pageSizing = (Clay_Sizing) {
-						    .width  = CLAY_SIZING_GROW(0),
-						    .height = CLAY_SIZING_GROW(0),
-						};
-					}
-
-					if (p != NULL)
-					{
-						CLAY_AUTO_ID({
-						    .layout = {
-						        .sizing = pageSizing,
-						    },
-						    .aspectRatio = {(float) p->page_bitmap.width / (float) p->page_bitmap.height},
-						    .image       = {
-						        .imageData = p->page_texture,
-						    },
-						    .border = {
-						        .width = CLAY_BORDER_ALL(1),
-						        .color = {138, 173, 244, 255},
-						    },
-						})
-						{}
-					}
-					else
-					{
-						float ph = content_inner_w / layout_aspect;
-						if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
-						{
-							ph = contentData.scrollContainerDimensions.height - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
-						}
-						float pw = ph * layout_aspect;
-						CLAY_AUTO_ID({
-						    .layout = {
-						        .sizing = {
-						            .width  = CLAY_SIZING_FIXED(pw),
-						            .height = CLAY_SIZING_FIXED(ph),
-						        },
-						    },
-						    .backgroundColor = {40, 42, 58, 255},
-						    .border          = {
-						        .width = CLAY_BORDER_ALL(1),
-						        .color = {80, 85, 110, 255},
-						    },
-						})
-						{}
-					}
-				}
-			}
+			ui_doc_content(&doc, app, contentData, contentOffset, content_inner_w, total_pages);
 		}
 	}
 
 	Clay_RenderCommandArray commands = Clay_EndLayout();
 
-	if (app->program_state == FILE_VIEW)
-	{
-		Clay_ScrollContainerData sidebarData = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
-		if (sidebarData.found && sidebarData.scrollPosition)
-		{
-			app->sidebar_scroll_offset = *sidebarData.scrollPosition;
-			app->sidebar_scroll_valid  = true;
-		}
-		Clay_ScrollContainerData contentData = Clay_GetScrollContainerData(CLAY_ID("Content"));
-		if (contentData.found && contentData.scrollPosition)
-		{
-			app->content_scroll_offset = *contentData.scrollPosition;
-			app->content_scroll_valid  = true;
-		}
-		if (contentData.found)
-		{
-			app->content_viewport_width  = contentData.scrollContainerDimensions.width;
-			app->content_viewport_height = contentData.scrollContainerDimensions.height;
-			app->content_viewport_valid  = true;
-		}
-	}
+	ui_doc_capture_scroll_state(app);
 
 	return commands;
 }

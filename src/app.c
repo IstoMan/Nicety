@@ -98,6 +98,7 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 	self->document_arena = arena;
 	self->document_ctx   = ctx;
 	self->document       = doc;
+	self->view_mode_prev = self->view_mode;
 	return 0;
 }
 
@@ -106,6 +107,7 @@ void app_init(App *self)
 	memset(self, 0, sizeof *self);
 	self->sensitivity          = 3;
 	self->program_state        = LOAD_FILE;
+	self->view_mode_prev       = VIEW_MODE_FILL;
 	self->document             = NULL;
 	self->document_ctx         = NULL;
 	self->document_arena       = NULL;
@@ -141,9 +143,10 @@ void app_on_update(App *self, Application *core)
 		break;
 		case FILE_VIEW:
 		{
+			bool view_mode_changed = (self->view_mode != self->view_mode_prev);
 			if (self->document != NULL && self->document->session != NULL && self->document->session->total_pages > 0
 			    && self->content_scroll_valid && self->content_viewport_valid && self->content_viewport_width > 1.0f
-			    && core != NULL)
+			    && core != NULL && !view_mode_changed)
 			{
 				bool fit = (self->view_mode == VIEW_MODE_FIT_HEIGHT);
 				size_t c = document_page_at_scroll_y(self->document, self->content_scroll_offset.y, self->content_viewport_width,
@@ -158,6 +161,7 @@ void app_on_update(App *self, Application *core)
 					}
 				}
 			}
+			self->view_mode_prev = self->view_mode;
 			self->ui_commands = ui_document_view(*self->document, self);
 		}
 		break;

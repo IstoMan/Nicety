@@ -25,6 +25,7 @@ typedef struct App
 	size_t                  sensitivity;
 	AppState                program_state;
 	ViewMode                view_mode;
+	ViewMode                view_mode_prev;
 	mem_arena              *document_arena;
 	DocumentContext        *document_ctx;
 	Document               *document;

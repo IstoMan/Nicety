@@ -40,17 +40,6 @@ Clay_RenderCommandArray ui_load_file_layout(void)
 	return Clay_EndLayout();
 }
 
-static void toggle_view_mode(Clay_ElementId elementId, Clay_PointerData pointerData, intptr_t userData)
-{
-	(void) elementId;
-
-	if (pointerData.state == CLAY_POINTER_DATA_PRESSED_THIS_FRAME)
-	{
-		App *app       = (App *) userData;
-		app->view_mode = app->view_mode == VIEW_MODE_FILL ? VIEW_MODE_FIT_HEIGHT : VIEW_MODE_FILL;
-	}
-}
-
 static float sidebar_inner_width(void)
 {
 	return NICETY_DOC_SIDEBAR_OUTER_W - 2.0f * NICETY_DOC_SIDEBAR_PAD;
@@ -77,7 +66,6 @@ static void ui_doc_header(App *app)
 		                                 .cornerRadius    = CLAY_CORNER_RADIUS(4),
 		                             })
 		{
-			Clay_OnHover(toggle_view_mode, (intptr_t) app);
 			CLAY_TEXT(app->view_mode == VIEW_MODE_FILL ? CLAY_STRING("Mode: Fill") : CLAY_STRING("Mode: Fit"), CLAY_TEXT_CONFIG({
 			                                                                                                       .fontId    = FONT_ID_0,
 			                                                                                                       .fontSize  = 16,

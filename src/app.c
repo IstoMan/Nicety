@@ -102,6 +102,11 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 	return 0;
 }
 
+static void app_toggle_view_mode(App *self)
+{
+	self->view_mode = self->view_mode == VIEW_MODE_FILL ? VIEW_MODE_FIT_HEIGHT : VIEW_MODE_FILL;
+}
+
 void app_init(App *self)
 {
 	memset(self, 0, sizeof *self);
@@ -189,6 +194,11 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			Clay_SetPointerState((Clay_Vector2) {event.button.x, event.button.y}, event.button.button == SDL_BUTTON_LEFT);
+			if (self->program_state == FILE_VIEW && event.button.button == SDL_BUTTON_LEFT
+			    && Clay_PointerOver(Clay_GetElementId(CLAY_STRING("ViewModeBtn"))))
+			{
+				app_toggle_view_mode(self);
+			}
 			if (self->program_state == LOAD_FILE && event.button.button == SDL_BUTTON_LEFT)
 			{
 				char const *filter[]   = {"*.pdf"};
@@ -217,6 +227,10 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 					self->program_state = FILE_VIEW;
 				}
 			}
+			break;
+		case SDL_EVENT_MOUSE_BUTTON_UP:
+			Clay_SetPointerState((Clay_Vector2) {event.button.x, event.button.y},
+			                     (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON_LMASK) != 0);
 			break;
 		case SDL_EVENT_MOUSE_MOTION:
 			Clay_SetPointerState((Clay_Vector2) {event.motion.x, event.motion.y}, event.motion.state & SDL_BUTTON_LMASK);

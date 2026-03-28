@@ -66,6 +66,13 @@ typedef struct App
 	float                      page_loader_pixel_density;
 	NicetyPageWindowCpuResult *page_loader_completed;
 	bool                       page_loader_have_completed;
+
+	/* SDL_ShowOpenFileDialog: callback may be off-thread; hand off path to main thread via mutex. */
+	SDL_Mutex *file_dialog_mutex;
+	char      *file_dialog_pending_path;
+	char      *file_dialog_default_location_copy; /* strdup for SDL_ShowOpenFileDialog default_location lifetime */
+	bool       file_dialog_result_ready;
+	bool       file_dialog_open;
 } App;
 
 void app_init(App *self);

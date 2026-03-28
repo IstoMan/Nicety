@@ -155,11 +155,24 @@ static void ui_doc_header(App *app)
 	                                             .width  = CLAY_SIZING_GROW(0),
                                     },
 	                                         .padding         = CLAY_PADDING_ALL(8),
+	                                         .childGap        = 8,
 	                                         .childAlignment  = {.y = CLAY_ALIGN_Y_CENTER},
 	                                         .layoutDirection = CLAY_LEFT_TO_RIGHT,
                                 },
 	                        })
 	{
+		CLAY(CLAY_ID("OpenBtn"), {
+		                                 .backgroundColor = Clay_Hovered() ? (Clay_Color) {150, 160, 200, 255} : (Clay_Color) {100, 110, 150, 255},
+		                                 .layout          = {.padding = CLAY_PADDING_ALL(4)},
+		                                 .cornerRadius    = CLAY_CORNER_RADIUS(4),
+		                             })
+		{
+			CLAY_TEXT(CLAY_STRING("Open"), CLAY_TEXT_CONFIG({
+			                                              .fontId    = FONT_ID_0,
+			                                              .fontSize  = 16,
+			                                              .textColor = {255, 255, 255, 255},
+			                                          }));
+		}
 		CLAY(CLAY_ID("ViewModeBtn"), {
 		                                 .backgroundColor = Clay_Hovered() ? (Clay_Color) {150, 160, 200, 255} : (Clay_Color) {100, 110, 150, 255},
 		                                 .layout          = {.padding = CLAY_PADDING_ALL(4)},

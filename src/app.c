@@ -1,7 +1,8 @@
 #include "app.h"
 #include "ui.h"
 #include "clay_renderer_SDL3.h"
-#include "tinyfiledialogs.h"
+#include <SDL3/SDL_dialog.h>
+#include <SDL3/SDL_filesystem.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -431,6 +432,88 @@ static bool app_try_open_pdf_path(App *self, Application *core, char *path_owned
 	return true;
 }
 
+/* Owned string; NULL if Documents/Home could not be resolved (dialog uses system default). */
+static char *app_dup_default_open_folder(void)
+{
+	char const *p = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS);
+	if (p == NULL)
+	{
+		p = SDL_GetUserFolder(SDL_FOLDER_HOME);
+	}
+	if (p == NULL)
+	{
+		return NULL;
+	}
+	return SDL_strdup(p);
+}
+
+static void SDLCALL app_open_file_dialog_cb(void *userdata, char const *const *filelist, int filter_index)
+{
+	App *self = (App *) userdata;
+	(void) filter_index;
+
+	if (self->file_dialog_mutex == NULL)
+	{
+		return;
+	}
+
+	SDL_LockMutex(self->file_dialog_mutex);
+	self->file_dialog_open = false;
+	SDL_free(self->file_dialog_default_location_copy);
+	self->file_dialog_default_location_copy = NULL;
+	SDL_free(self->file_dialog_pending_path);
+	self->file_dialog_pending_path = NULL;
+	self->file_dialog_result_ready   = false;
+
+	if (filelist == NULL)
+	{
+		fprintf(stderr, "Open file dialog error: %s\n", SDL_GetError());
+		SDL_UnlockMutex(self->file_dialog_mutex);
+		return;
+	}
+	if (filelist[0] == NULL)
+	{
+		SDL_UnlockMutex(self->file_dialog_mutex);
+		return;
+	}
+
+	self->file_dialog_pending_path = SDL_strdup(filelist[0]);
+	if (self->file_dialog_pending_path == NULL)
+	{
+		fprintf(stderr, "Out of memory copying dialog path\n");
+		SDL_UnlockMutex(self->file_dialog_mutex);
+		return;
+	}
+	self->file_dialog_result_ready = true;
+	SDL_UnlockMutex(self->file_dialog_mutex);
+}
+
+static void app_show_open_pdf_dialog(App *self, Application *core)
+{
+	static SDL_DialogFileFilter const filters[] = {
+	    {"PDF File", "pdf"},
+	};
+
+	if (self == NULL || core == NULL || self->file_dialog_mutex == NULL)
+	{
+		return;
+	}
+
+	SDL_LockMutex(self->file_dialog_mutex);
+	if (self->file_dialog_open)
+	{
+		SDL_UnlockMutex(self->file_dialog_mutex);
+		return;
+	}
+	self->file_dialog_open = true;
+	SDL_UnlockMutex(self->file_dialog_mutex);
+
+	SDL_free(self->file_dialog_default_location_copy);
+	self->file_dialog_default_location_copy = app_dup_default_open_folder();
+
+	SDL_ShowOpenFileDialog(app_open_file_dialog_cb, self, core->window, filters, 1, self->file_dialog_default_location_copy, false);
+}
+
 static void app_toggle_view_mode(App *self)
 {
 	bool old_fit = (self->view_mode == VIEW_MODE_FIT_HEIGHT);
@@ -467,12 +550,30 @@ void app_init(App *self)
 	self->content_viewport_valid = false;
 	self->sidebar_viewport_valid = false;
 	self->sidebar_visible        = true;
+	self->file_dialog_mutex = SDL_CreateMutex();
+	if (self->file_dialog_mutex == NULL)
+	{
+		fprintf(stderr, "file_dialog: SDL_CreateMutex failed\n");
+	}
 	page_loader_init(self);
 }
 
 void app_destroy(App *self)
 {
 	page_loader_shutdown(self);
+	if (self->file_dialog_mutex != NULL)
+	{
+		SDL_LockMutex(self->file_dialog_mutex);
+		SDL_free(self->file_dialog_default_location_copy);
+		self->file_dialog_default_location_copy = NULL;
+		SDL_free(self->file_dialog_pending_path);
+		self->file_dialog_pending_path = NULL;
+		self->file_dialog_result_ready = false;
+		self->file_dialog_open         = false;
+		SDL_UnlockMutex(self->file_dialog_mutex);
+		SDL_DestroyMutex(self->file_dialog_mutex);
+		self->file_dialog_mutex = NULL;
+	}
 	app_close_document(self);
 }
 
@@ -489,6 +590,26 @@ void app_on_render(App *self, void *renderer)
 
 void app_on_update(App *self, Application *core)
 {
+	if (self->file_dialog_mutex != NULL)
+	{
+		char *path = NULL;
+
+		SDL_LockMutex(self->file_dialog_mutex);
+		if (self->file_dialog_result_ready && self->file_dialog_pending_path != NULL)
+		{
+			path                           = self->file_dialog_pending_path;
+			self->file_dialog_pending_path = NULL;
+			self->file_dialog_result_ready = false;
+		}
+		SDL_UnlockMutex(self->file_dialog_mutex);
+
+		if (path != NULL)
+		{
+			app_close_document(self);
+			(void) app_try_open_pdf_path(self, core, path, "Please select a .pdf file");
+		}
+	}
+
 	switch (self->program_state)
 	{
 		case LOAD_FILE:
@@ -599,24 +720,13 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 			{
 				app_toggle_view_mode(self);
 			}
+			if (self->program_state == FILE_VIEW && event.button.button == SDL_BUTTON_LEFT && Clay_PointerOver(Clay_GetElementId(CLAY_STRING("OpenBtn"))))
+			{
+				app_show_open_pdf_dialog(self, core);
+			}
 			if (self->program_state == LOAD_FILE && event.button.button == SDL_BUTTON_LEFT)
 			{
-				char const *filter[]   = {"*.pdf"};
-				char       *input_path = tinyfd_openFileDialog("Select a PDF", "./resources/", 1, filter, "PDF File", false);
-				if (input_path)
-				{
-					app_close_document(self);
-					char *input_path_copy = SDL_strdup(input_path);
-					if (input_path_copy == NULL)
-					{
-						fprintf(stderr, "Out of memory copying path\n");
-						break;
-					}
-					if (!app_try_open_pdf_path(self, core, input_path_copy, "Please select a .pdf file"))
-					{
-						break;
-					}
-				}
+				app_show_open_pdf_dialog(self, core);
 			}
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_UP:

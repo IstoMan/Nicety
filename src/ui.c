@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "colors.h"
 #include "document.h"
 #include <math.h>
 
@@ -13,8 +14,9 @@
 
 static const int   FONT_ID_0 = 0;
 static const float NICETY_SIDEBAR_LINK_EPS = 0.5f;
+/* Toolbar icon quads (PNG assets are 20x20; layout uses 16 logical px). */
+static const float NICETY_TOOLBAR_ICON = 16.0f;
 
-static Clay_Color  base_color  = {36, 39, 58, 255};
 static Clay_Sizing grow_sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)};
 
 /* Matches Outer padding (2 each side), Header height, Body + Sidebar in ui_document_view. */
@@ -40,7 +42,7 @@ Clay_RenderCommandArray ui_load_file_layout(void)
 {
 	Clay_BeginLayout();
 	CLAY(CLAY_ID("Outer"), {
-	                           .backgroundColor = base_color,
+	                           .backgroundColor = NICETY_UI_BASE,
 	                           .layout          = {
 	                                        .layoutDirection = CLAY_TOP_TO_BOTTOM,
 	                                        .sizing          = grow_sizing,
@@ -50,12 +52,12 @@ Clay_RenderCommandArray ui_load_file_layout(void)
 		CLAY_TEXT(CLAY_STRING("Click to Select"), CLAY_TEXT_CONFIG({
 		                                              .fontId    = FONT_ID_0,
 		                                              .fontSize  = 50,
-		                                              .textColor = {202, 211, 245, 255},
+		                                              .textColor = NICETY_UI_TEXT,
 		                                          }));
 		CLAY_TEXT(CLAY_STRING("or Drop a File"), CLAY_TEXT_CONFIG({
 		                                             .fontId    = FONT_ID_0,
 		                                             .fontSize  = 30,
-		                                             .textColor = {202, 211, 245, 255},
+		                                             .textColor = NICETY_UI_TEXT,
 		                                         }));
 	}
 	return Clay_EndLayout();
@@ -145,10 +147,10 @@ static void ui_content_virt_gap(size_t i)
 	}
 }
 
-static void ui_doc_header(App *app)
+static void ui_doc_header(App *app, Application *core)
 {
 	CLAY(CLAY_ID("Header"), {
-	                            .backgroundColor = {128, 135, 162, 255},
+	                            .backgroundColor = NICETY_UI_HEADER,
 	                            .layout          = {
 	                                         .sizing = {
 	                                             .height = CLAY_SIZING_FIXED(40),
@@ -162,27 +164,69 @@ static void ui_doc_header(App *app)
 	                        })
 	{
 		CLAY(CLAY_ID("OpenBtn"), {
-		                                 .backgroundColor = Clay_Hovered() ? (Clay_Color) {150, 160, 200, 255} : (Clay_Color) {100, 110, 150, 255},
-		                                 .layout          = {.padding = CLAY_PADDING_ALL(4)},
+		                                 .backgroundColor = Clay_Hovered() ? NICETY_UI_BTN_HOVER : NICETY_UI_BTN_IDLE,
+		                                 .layout          = {
+	                                             .padding         = CLAY_PADDING_ALL(4),
+	                                             .layoutDirection = CLAY_LEFT_TO_RIGHT,
+	                                             .childGap        = 6,
+	                                             .childAlignment  = {.y = CLAY_ALIGN_Y_CENTER},
+	                                         },
 		                                 .cornerRadius    = CLAY_CORNER_RADIUS(4),
 		                             })
 		{
+			if (core != NULL && core->ui_icon_open != NULL)
+			{
+				CLAY(CLAY_ID("OpenBtnIcon"), {
+				                                 .layout = {
+				                                     .sizing = {
+				                                         .width  = CLAY_SIZING_FIXED(NICETY_TOOLBAR_ICON),
+				                                         .height = CLAY_SIZING_FIXED(NICETY_TOOLBAR_ICON),
+				                                     },
+				                                 },
+				                                 .image = {
+				                                     .imageData = core->ui_icon_open,
+				                                 },
+				                             })
+				{
+				}
+			}
 			CLAY_TEXT(CLAY_STRING("Open"), CLAY_TEXT_CONFIG({
 			                                              .fontId    = FONT_ID_0,
 			                                              .fontSize  = 16,
-			                                              .textColor = {255, 255, 255, 255},
+			                                              .textColor = NICETY_UI_BTN_TEXT,
 			                                          }));
 		}
 		CLAY(CLAY_ID("ViewModeBtn"), {
-		                                 .backgroundColor = Clay_Hovered() ? (Clay_Color) {150, 160, 200, 255} : (Clay_Color) {100, 110, 150, 255},
-		                                 .layout          = {.padding = CLAY_PADDING_ALL(4)},
+		                                 .backgroundColor = Clay_Hovered() ? NICETY_UI_BTN_HOVER : NICETY_UI_BTN_IDLE,
+		                                 .layout          = {
+	                                             .padding         = CLAY_PADDING_ALL(4),
+	                                             .layoutDirection = CLAY_LEFT_TO_RIGHT,
+	                                             .childGap        = 6,
+	                                             .childAlignment  = {.y = CLAY_ALIGN_Y_CENTER},
+	                                         },
 		                                 .cornerRadius    = CLAY_CORNER_RADIUS(4),
 		                             })
 		{
+			if (core != NULL && core->ui_icon_view_mode != NULL)
+			{
+				CLAY(CLAY_ID("ViewModeBtnIcon"), {
+				                                       .layout = {
+				                                           .sizing = {
+				                                               .width  = CLAY_SIZING_FIXED(NICETY_TOOLBAR_ICON),
+				                                               .height = CLAY_SIZING_FIXED(NICETY_TOOLBAR_ICON),
+				                                           },
+				                                       },
+				                                       .image = {
+				                                           .imageData = core->ui_icon_view_mode,
+				                                       },
+				                                   })
+				{
+				}
+			}
 			CLAY_TEXT(app->view_mode == VIEW_MODE_FILL ? CLAY_STRING("Mode: Fill") : CLAY_STRING("Mode: Fit"), CLAY_TEXT_CONFIG({
 			                                                                                                       .fontId    = FONT_ID_0,
 			                                                                                                       .fontSize  = 16,
-			                                                                                                       .textColor = {255, 255, 255, 255},
+			                                                                                                       .textColor = NICETY_UI_BTN_TEXT,
 			                                                                                                   }));
 		}
 	}
@@ -199,7 +243,7 @@ static void ui_doc_sidebar(const Document *doc, Clay_Vector2 sidebarOffset, Clay
 	if (doc->page_layout_w == NULL)
 	{
 		CLAY(CLAY_ID("Sidebar"), {
-		                             .backgroundColor = {54, 58, 79, 255},
+		                             .backgroundColor = NICETY_UI_SIDEBAR,
 		                             .clip            = {.vertical = true, .childOffset = sidebarOffset},
 		                             .layout          = {
 		                                          .sizing = {
@@ -220,7 +264,7 @@ static void ui_doc_sidebar(const Document *doc, Clay_Vector2 sidebarOffset, Clay
 	document_visible_sidebar_range(doc, sb_inner, sidebarOffset.y, vh, &lo, &hi, &spacer_top, &spacer_bottom);
 
 	CLAY(CLAY_ID("Sidebar"), {
-	                             .backgroundColor = {54, 58, 79, 255},
+	                             .backgroundColor = NICETY_UI_SIDEBAR,
 	                             .clip            = {.vertical = true, .childOffset = sidebarOffset},
 	                             .layout          = {
 	                                          .sizing = {
@@ -271,7 +315,7 @@ static void ui_doc_sidebar(const Document *doc, Clay_Vector2 sidebarOffset, Clay
                                                             },
 					                                        .border = {
 					                                            .width = CLAY_BORDER_ALL(1),
-					                                            .color = {138, 173, 244, 255},
+					                                            .color = NICETY_UI_PAGE_BORDER,
 					                                        },
 					                                    })
 					{
@@ -287,10 +331,10 @@ static void ui_doc_sidebar(const Document *doc, Clay_Vector2 sidebarOffset, Clay
 					                                            },
 					                                            .layoutDirection = CLAY_TOP_TO_BOTTOM,
 					                                        },
-					                                        .backgroundColor = {40, 42, 58, 255},
+					                                        .backgroundColor = NICETY_UI_PLACEHOLDER_BG,
 					                                        .border          = {
 					                                                     .width = CLAY_BORDER_ALL(1),
-					                                                     .color = {80, 85, 110, 255},
+					                                                     .color = NICETY_UI_PLACEHOLDER_BD,
                                                             },
 					                                    })
 					{
@@ -315,7 +359,7 @@ static void ui_doc_content(const Document *doc, App *app, Clay_Vector2 contentOf
 	if (doc->page_layout_w == NULL)
 	{
 		CLAY(CLAY_ID("Content"), {
-		                             .backgroundColor = {24, 25, 38, 255},
+		                             .backgroundColor = NICETY_UI_CONTENT,
 		                             .clip            = {.vertical = true, .childOffset = contentOffset},
 		                             .layout          = {
 		                                          .layoutDirection = CLAY_TOP_TO_BOTTOM,
@@ -333,7 +377,7 @@ static void ui_doc_content(const Document *doc, App *app, Clay_Vector2 contentOf
 	document_visible_content_range(doc, content_inner_w, contentOffset.y, viewport_w, vh, fit, &lo, &hi, &spacer_top, &spacer_bottom);
 
 	CLAY(CLAY_ID("Content"), {
-	                             .backgroundColor = {24, 25, 38, 255},
+	                             .backgroundColor = NICETY_UI_CONTENT,
 	                             .clip            = {.vertical = true, .childOffset = contentOffset},
 	                             .layout          = {
 	                                          .layoutDirection = CLAY_TOP_TO_BOTTOM,
@@ -391,7 +435,7 @@ static void ui_doc_content(const Document *doc, App *app, Clay_Vector2 contentOf
                                                             },
 					                                        .border = {
 					                                            .width = CLAY_BORDER_ALL(1),
-					                                            .color = {138, 173, 244, 255},
+					                                            .color = NICETY_UI_PAGE_BORDER,
 					                                        },
 					                                    })
 					{
@@ -412,10 +456,10 @@ static void ui_doc_content(const Document *doc, App *app, Clay_Vector2 contentOf
 					                                                .height = CLAY_SIZING_FIXED(ph),
 					                                            },
 					                                        },
-					                                        .backgroundColor = {40, 42, 58, 255},
+					                                        .backgroundColor = NICETY_UI_PLACEHOLDER_BG,
 					                                        .border          = {
 					                                                     .width = CLAY_BORDER_ALL(1),
-					                                                     .color = {80, 85, 110, 255},
+					                                                     .color = NICETY_UI_PLACEHOLDER_BD,
                                                             },
 					                                    })
 					{
@@ -460,7 +504,7 @@ static void ui_doc_capture_scroll_state(App *app)
 	}
 }
 
-Clay_RenderCommandArray ui_document_view(const Document doc, App *app, float layout_w, float layout_h)
+Clay_RenderCommandArray ui_document_view(const Document doc, App *app, Application *core, float layout_w, float layout_h)
 {
 	size_t total_pages;
 
@@ -479,7 +523,7 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app, float lay
 	Clay_BeginLayout();
 
 	CLAY(CLAY_ID("Outer"), {
-	                           .backgroundColor = base_color,
+	                           .backgroundColor = NICETY_UI_BASE,
 	                           .layout          = {
 	                                        .sizing          = grow_sizing,
 	                                        .layoutDirection = CLAY_TOP_TO_BOTTOM,
@@ -487,9 +531,9 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app, float lay
                                },
 	                       })
 	{
-		ui_doc_header(app);
+		ui_doc_header(app, core);
 		CLAY(CLAY_ID("Body"), {
-		                          .backgroundColor = base_color,
+		                          .backgroundColor = NICETY_UI_BASE,
 		                          .layout          = {
 		                                       .layoutDirection = CLAY_LEFT_TO_RIGHT,
 		                                       .sizing          = grow_sizing,

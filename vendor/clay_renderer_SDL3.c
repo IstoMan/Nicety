@@ -288,7 +288,19 @@ void SDL_Clay_RenderClayCommands(Clay_SDL3RendererData *rendererData, Clay_Rende
 			{
 				SDL_Texture    *texture = (SDL_Texture *) rcmd->renderData.image.imageData;
 				const SDL_FRect dest    = {rect.x, rect.y, rect.w, rect.h};
+				Clay_Color      tint    = rcmd->renderData.image.backgroundColor;
+				bool            mod     = tint.a > 0.5f;
+				if (mod)
+				{
+					(void) SDL_SetTextureColorModFloat(texture, tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f);
+					(void) SDL_SetTextureAlphaModFloat(texture, tint.a / 255.0f);
+				}
 				SDL_RenderTexture(rendererData->renderer, texture, NULL, &dest);
+				if (mod)
+				{
+					(void) SDL_SetTextureColorModFloat(texture, 1.0f, 1.0f, 1.0f);
+					(void) SDL_SetTextureAlphaModFloat(texture, 1.0f);
+				}
 				break;
 			}
 			default:

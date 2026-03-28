@@ -15,6 +15,9 @@ typedef struct Application
 	TTF_Font      **fonts;
 	Clay_Arena      clay_memory;
 
+	SDL_Texture *ui_icon_open;
+	SDL_Texture *ui_icon_view_mode;
+
 	bool is_running;
 } Application;
 

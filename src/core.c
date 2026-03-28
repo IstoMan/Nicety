@@ -1,5 +1,7 @@
 #include "core.h"
+#include "colors.h"
 #include "clay_renderer_SDL3.h"
+#include <SDL3_image/SDL_image.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -107,6 +109,17 @@ bool application_init(Application *core, WindowSpecs specs)
 	Clay_SetDebugModeEnabled(false);
 	Clay_SetMeasureTextFunction(SDL_MeasureText, core->fonts);
 
+	core->ui_icon_open = IMG_LoadTexture(core->renderer, "res/icon_open.png");
+	if (core->ui_icon_open == NULL)
+	{
+		SDL_Log("toolbar icon: res/icon_open.png: %s", SDL_GetError());
+	}
+	core->ui_icon_view_mode = IMG_LoadTexture(core->renderer, "res/icon_view_mode.png");
+	if (core->ui_icon_view_mode == NULL)
+	{
+		SDL_Log("toolbar icon: res/icon_view_mode.png: %s", SDL_GetError());
+	}
+
 	return true;
 
 fail:
@@ -141,7 +154,7 @@ void application_run(Application *core, App *app)
 		}
 
 		app_on_update(app, core);
-		SDL_SetRenderDrawColor(core->renderer, 255, 255, 255, 255);
+		SDL_SetRenderDrawColor(core->renderer, NICETY_SDL_CLEAR_R, NICETY_SDL_CLEAR_G, NICETY_SDL_CLEAR_B, 255);
 		SDL_RenderClear(core->renderer);
 
 		app_on_render(app, core);
@@ -152,6 +165,16 @@ void application_run(Application *core, App *app)
 
 void application_cleanup(Application *core)
 {
+	if (core->ui_icon_open != NULL)
+	{
+		SDL_DestroyTexture(core->ui_icon_open);
+		core->ui_icon_open = NULL;
+	}
+	if (core->ui_icon_view_mode != NULL)
+	{
+		SDL_DestroyTexture(core->ui_icon_view_mode);
+		core->ui_icon_view_mode = NULL;
+	}
 	free(core->clay_memory.memory);
 	SDL_DestroyRenderer(core->renderer);
 	SDL_DestroyWindow(core->window);

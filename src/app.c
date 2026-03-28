@@ -672,7 +672,7 @@ void app_on_update(App *self, Application *core)
 						lh = (float) rh;
 					}
 				}
-				self->ui_commands = ui_document_view(*self->document, self, lw, lh);
+				self->ui_commands = ui_document_view(*self->document, self, core, lw, lh);
 			}
 		}
 		break;

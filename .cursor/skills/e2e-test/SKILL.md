@@ -18,7 +18,7 @@ description: >-
 |------|---------|
 | Build | `CMakeLists.txt` → executable **`nicety`** |
 | UI | Clay layouts in `src/ui.c`; app state in `src/app.c` |
-| PDF | `src/document.c`, MuPDF via `pkg_check_modules(MUPDF …)` |
+| PDF | `src/document_*.c` (layout, raster, SDL upload, sync/CPU page window), MuPDF via `pkg_check_modules(MUPDF …)` |
 | File pick | `tinyfiledialogs` (`SDL_EVENT_MOUSE_BUTTON_DOWN` → open dialog) |
 | Test PDF | `resources/book.pdf` (repo); dialog defaults start under `./resources/` |
 
@@ -83,7 +83,7 @@ There is **no** database. Instead summarize:
 
 ### Sub-agent 3: Bug hunt
 
-Same focus as before: logic errors, UI/state bugs, resource leaks, security (path handling, untrusted PDFs). **Prioritize** `src/app.c`, `src/document.c`, `src/ui.c`, `src/core.c`.
+Same focus as before: logic errors, UI/state bugs, resource leaks, security (path handling, untrusted PDFs). **Prioritize** `src/app.c`, `src/document_*.c`, `src/ui.c`, `src/core.c`.
 
 Wait for all three sub-agents before Phase 2.
 

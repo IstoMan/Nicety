@@ -58,6 +58,11 @@ typedef struct
 #define NICETY_DOC_SIDEBAR_PAD 10.0f
 #define NICETY_DOC_SIDEBAR_INTER_GAP 10.0f
 
+/* Auto-hide sidebar when Clay layout width (render width minus Outer padding) is below this. */
+#define NICETY_DOC_MIN_CONTENT_W_BESIDE_SIDEBAR 280.0f
+#define NICETY_DOC_MIN_LAYOUT_W_FOR_SIDEBAR \
+	(NICETY_DOC_SIDEBAR_OUTER_W + 2.0f * NICETY_DOC_CONTENT_PAD + NICETY_DOC_MIN_CONTENT_W_BESIDE_SIDEBAR)
+
 /* Max width (CSS-ish) for NICETY_RENDER_LOW sidebar thumbnails; scaled via fz_scale_pixmap. */
 #define NICETY_SIDEBAR_THUMB_MAX_PX 128.0f
 
@@ -151,6 +156,10 @@ size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float view
  */
 bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_in, float viewport_w, float viewport_h,
                                            bool from_fit_height, bool to_fit_height, float *scroll_y_out);
+
+/* Same anchor semantics when only the content viewport size changes (window resize). */
+bool document_remap_scroll_y_for_viewport_change(const Document *doc, float scroll_y_in, float viewport_w_old, float viewport_h_old,
+                                                 float viewport_w_new, float viewport_h_new, bool fit_height_mode, float *scroll_y_out);
 
 Page *document_page_for_index(const Document *doc, size_t page_index);
 

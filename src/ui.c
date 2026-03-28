@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "document.h"
+#include <math.h>
 
 /*
  * Scroll areas follow Clay’s pattern: clip + childOffset on the scroll parent, children laid out
@@ -14,6 +15,25 @@ static const int FONT_ID_0 = 0;
 
 static Clay_Color  base_color  = {36, 39, 58, 255};
 static Clay_Sizing grow_sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)};
+
+/* Matches Outer padding (2 each side), Header height, Body + Sidebar in ui_document_view. */
+static void ui_predict_content_viewport(float layout_w, float layout_h, bool sidebar_visible, float *out_w, float *out_h)
+{
+	float inner_w = layout_w - 4.0f;
+	float inner_h = layout_h - 4.0f;
+	float body_h  = inner_h - 40.0f;
+	float cw      = inner_w - (sidebar_visible ? NICETY_DOC_SIDEBAR_OUTER_W : 0.0f);
+	if (cw < 1.0f)
+	{
+		cw = 1.0f;
+	}
+	if (body_h < 1.0f)
+	{
+		body_h = 1.0f;
+	}
+	*out_w = cw;
+	*out_h = body_h;
+}
 
 Clay_RenderCommandArray ui_load_file_layout(void)
 {
@@ -269,11 +289,11 @@ static void ui_doc_sidebar(const Document *doc, Clay_Vector2 sidebarOffset, Clay
 	}
 }
 
-static void ui_doc_content(const Document *doc, App *app, Clay_ScrollContainerData contentData, Clay_Vector2 contentOffset,
-                           float content_inner_w, float viewport_w, size_t total_pages)
+static void ui_doc_content(const Document *doc, App *app, Clay_Vector2 contentOffset, float content_inner_w, float viewport_w,
+                           float content_vh, size_t total_pages)
 {
-	bool   fit = app->view_mode == VIEW_MODE_FIT_HEIGHT;
-	float  vh  = contentData.found ? contentData.scrollContainerDimensions.height : 0.0f;
+	bool fit = app->view_mode == VIEW_MODE_FIT_HEIGHT;
+	float vh = content_vh;
 	size_t lo, hi;
 	float  spacer_top, spacer_bottom;
 	size_t i;
@@ -328,9 +348,9 @@ static void ui_doc_content(const Document *doc, App *app, Clay_ScrollContainerDa
 				Page *p             = document_page_for_index(doc, i);
 
 				Clay_Sizing pageSizing;
-				if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
+				if (app->view_mode == VIEW_MODE_FIT_HEIGHT && content_vh > 40.0f)
 				{
-					float target_height = contentData.scrollContainerDimensions.height - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
+					float target_height = content_vh - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
 					float aspect_use    = p ? ((float) p->page_bitmap.width / (float) p->page_bitmap.height) : layout_aspect;
 					pageSizing          = (Clay_Sizing) {
 					             .width  = CLAY_SIZING_FIXED(target_height * aspect_use),
@@ -366,9 +386,9 @@ static void ui_doc_content(const Document *doc, App *app, Clay_ScrollContainerDa
 				else
 				{
 					float ph = content_inner_w / layout_aspect;
-					if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
+					if (app->view_mode == VIEW_MODE_FIT_HEIGHT && content_vh > 40.0f)
 					{
-						ph = contentData.scrollContainerDimensions.height - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
+						ph = content_vh - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
 					}
 					float pw = ph * layout_aspect;
 					CLAY(CLAY_IDI("DocContentPage", i), {
@@ -421,7 +441,7 @@ static void ui_doc_capture_scroll_state(App *app)
 	}
 }
 
-Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
+Clay_RenderCommandArray ui_document_view(const Document doc, App *app, float layout_w, float layout_h)
 {
 	size_t total_pages;
 
@@ -433,6 +453,9 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 	{
 		total_pages = doc.session->total_pages;
 	}
+
+	float pred_w, pred_h;
+	ui_predict_content_viewport(layout_w, layout_h, app->sidebar_visible, &pred_w, &pred_h);
 
 	Clay_BeginLayout();
 
@@ -457,15 +480,36 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 			Clay_ScrollContainerData sidebarData   = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
 			Clay_Vector2             sidebarOffset = ui_scroll_persist(sidebarData, app->sidebar_scroll_valid, app->sidebar_scroll_offset);
 
-			ui_doc_sidebar(&doc, sidebarOffset, sidebarData, total_pages);
+			if (app->sidebar_visible)
+			{
+				ui_doc_sidebar(&doc, sidebarOffset, sidebarData, total_pages);
+			}
 
-			Clay_ScrollContainerData contentData   = Clay_GetScrollContainerData(CLAY_ID("Content"));
-			Clay_Vector2             contentOffset = ui_scroll_persist(contentData, app->content_scroll_valid, app->content_scroll_offset);
-			float                    content_inner_w =
-                (contentData.found && contentData.scrollContainerDimensions.width > 2.0f * NICETY_DOC_CONTENT_PAD) ? (contentData.scrollContainerDimensions.width - 2.0f * NICETY_DOC_CONTENT_PAD) : 1.0f;
-			float content_viewport_w = contentData.found ? contentData.scrollContainerDimensions.width : 1.0f;
+			Clay_ScrollContainerData contentData = Clay_GetScrollContainerData(CLAY_ID("Content"));
 
-			ui_doc_content(&doc, app, contentData, contentOffset, content_inner_w, content_viewport_w, total_pages);
+			if (doc.session != NULL && doc.page_layout_w != NULL && total_pages > 0 && app->content_scroll_valid && app->content_viewport_valid &&
+			    (fabsf(pred_w - app->content_viewport_width) > 0.5f || fabsf(pred_h - app->content_viewport_height) > 0.5f))
+			{
+				float new_y;
+				bool  fit = (app->view_mode == VIEW_MODE_FIT_HEIGHT);
+				if (document_remap_scroll_y_for_viewport_change(&doc, app->content_scroll_offset.y, app->content_viewport_width, app->content_viewport_height,
+				                                                pred_w, pred_h, fit, &new_y))
+				{
+					app->content_scroll_offset.y = new_y;
+					Clay_ScrollContainerData cd   = Clay_GetScrollContainerData(CLAY_ID("Content"));
+					if (cd.found && cd.scrollPosition)
+					{
+						cd.scrollPosition->y = new_y;
+					}
+				}
+			}
+
+			Clay_Vector2 contentOffset = ui_scroll_persist(contentData, app->content_scroll_valid, app->content_scroll_offset);
+			float        content_inner_w =
+			    pred_w > 2.0f * NICETY_DOC_CONTENT_PAD ? (pred_w - 2.0f * NICETY_DOC_CONTENT_PAD) : 1.0f;
+			float content_viewport_w = pred_w > 1.0f ? pred_w : 1.0f;
+
+			ui_doc_content(&doc, app, contentOffset, content_inner_w, content_viewport_w, pred_h, total_pages);
 		}
 	}
 

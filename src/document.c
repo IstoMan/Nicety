@@ -1,5 +1,6 @@
 #include "document.h"
 #include "core.h"
+#include <math.h>
 #include <SDL3/SDL.h>
 #include <mupdf/fitz.h>
 #include <stdio.h>
@@ -216,11 +217,25 @@ size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float view
 	return total - 1;
 }
 
-bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_in, float viewport_w, float viewport_h,
-                                           bool from_fit_height, bool to_fit_height, float *scroll_y_out)
+static const float NICETY_SCROLL_REMAP_EPS = 0.5f;
+
+static float inner_w_from_viewport_w(float viewport_w)
+{
+	float inner_w = viewport_w - 2.0f * NICETY_DOC_CONTENT_PAD;
+	return inner_w < 1.0f ? 1.0f : inner_w;
+}
+
+/*
+ * Map scroll_y so the viewport center stays at the same fraction along the same page when layout changes.
+ * Old vs new may differ in viewport size and/or fit-height vs fill.
+ */
+static bool document_remap_scroll_y_unified(const Document *doc, float scroll_y_in, float viewport_w_old, float viewport_h_old,
+                                          bool from_fit_height, float viewport_w_new, float viewport_h_new, bool to_fit_height,
+                                          float *scroll_y_out)
 {
 	size_t n;
-	float  inner_w;
+	float  inner_w_old;
+	float  inner_w_new;
 	float  y_target;
 	size_t page;
 	float  y_start_old;
@@ -238,42 +253,39 @@ bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_i
 		return false;
 	}
 
-	if (from_fit_height == to_fit_height)
+	if (from_fit_height == to_fit_height && fabsf(viewport_w_old - viewport_w_new) < NICETY_SCROLL_REMAP_EPS &&
+	    fabsf(viewport_h_old - viewport_h_new) < NICETY_SCROLL_REMAP_EPS)
 	{
 		*scroll_y_out = scroll_y_in;
 		return true;
 	}
 
-	n = doc->session->total_pages;
+	n           = doc->session->total_pages;
+	inner_w_old = inner_w_from_viewport_w(viewport_w_old);
+	inner_w_new = inner_w_from_viewport_w(viewport_w_new);
 
-	inner_w = viewport_w - 2.0f * NICETY_DOC_CONTENT_PAD;
-	if (inner_w < 1.0f)
-	{
-		inner_w = 1.0f;
-	}
+	page = document_page_at_scroll_y(doc, scroll_y_in, viewport_w_old, viewport_h_old, from_fit_height);
 
-	page = document_page_at_scroll_y(doc, scroll_y_in, viewport_w, viewport_h, from_fit_height);
-
-	if (viewport_h <= 0.0f)
+	if (viewport_h_old <= 0.0f)
 	{
 		y_target = -scroll_y_in;
 	}
 	else
 	{
-		y_target = -scroll_y_in + viewport_h * 0.5f;
+		y_target = -scroll_y_in + viewport_h_old * 0.5f;
 	}
 
 	y_start_old = NICETY_DOC_CONTENT_PAD;
 	for (size_t i = 0; i < page; i++)
 	{
-		y_start_old += content_row_height(doc, i, inner_w, viewport_h, from_fit_height);
+		y_start_old += content_row_height(doc, i, inner_w_old, viewport_h_old, from_fit_height);
 		if (i + 1 < n)
 		{
 			y_start_old += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
 		}
 	}
 
-	rh_old = content_row_height(doc, page, inner_w, viewport_h, from_fit_height);
+	rh_old = content_row_height(doc, page, inner_w_old, viewport_h_old, from_fit_height);
 	frac   = 0.0f;
 	if (rh_old > 1e-6f)
 	{
@@ -291,29 +303,29 @@ bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_i
 	y_start_new = NICETY_DOC_CONTENT_PAD;
 	for (size_t i = 0; i < page; i++)
 	{
-		y_start_new += content_row_height(doc, i, inner_w, viewport_h, to_fit_height);
+		y_start_new += content_row_height(doc, i, inner_w_new, viewport_h_new, to_fit_height);
 		if (i + 1 < n)
 		{
 			y_start_new += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
 		}
 	}
 
-	rh_new       = content_row_height(doc, page, inner_w, viewport_h, to_fit_height);
+	rh_new       = content_row_height(doc, page, inner_w_new, viewport_h_new, to_fit_height);
 	y_target_new = y_start_new + frac * rh_new;
 
-	if (viewport_h <= 0.0f)
+	if (viewport_h_new <= 0.0f)
 	{
 		scroll_out = -y_target_new;
 	}
 	else
 	{
-		scroll_out = -(y_target_new - viewport_h * 0.5f);
+		scroll_out = -(y_target_new - viewport_h_new * 0.5f);
 	}
 
 	total_h = NICETY_DOC_CONTENT_PAD;
 	for (size_t i = 0; i < n; i++)
 	{
-		total_h += content_row_height(doc, i, inner_w, viewport_h, to_fit_height);
+		total_h += content_row_height(doc, i, inner_w_new, viewport_h_new, to_fit_height);
 		if (i + 1 < n)
 		{
 			total_h += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
@@ -321,16 +333,16 @@ bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_i
 	}
 	total_h += NICETY_DOC_CONTENT_PAD;
 
-	if (viewport_h > 1.0f && total_h <= viewport_h)
+	if (viewport_h_new > 1.0f && total_h <= viewport_h_new)
 	{
 		*scroll_y_out = 0.0f;
 		return true;
 	}
 
 	max_neg = 0.0f;
-	if (viewport_h > 1.0f && total_h > viewport_h)
+	if (viewport_h_new > 1.0f && total_h > viewport_h_new)
 	{
-		max_neg = -(total_h - viewport_h);
+		max_neg = -(total_h - viewport_h_new);
 	}
 
 	if (scroll_out > 0.0f)
@@ -344,6 +356,20 @@ bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_i
 
 	*scroll_y_out = scroll_out;
 	return true;
+}
+
+bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_in, float viewport_w, float viewport_h,
+                                           bool from_fit_height, bool to_fit_height, float *scroll_y_out)
+{
+	return document_remap_scroll_y_unified(doc, scroll_y_in, viewport_w, viewport_h, from_fit_height, viewport_w, viewport_h, to_fit_height,
+	                                     scroll_y_out);
+}
+
+bool document_remap_scroll_y_for_viewport_change(const Document *doc, float scroll_y_in, float viewport_w_old, float viewport_h_old,
+                                                 float viewport_w_new, float viewport_h_new, bool fit_height_mode, float *scroll_y_out)
+{
+	return document_remap_scroll_y_unified(doc, scroll_y_in, viewport_w_old, viewport_h_old, fit_height_mode, viewport_w_new, viewport_h_new,
+	                                       fit_height_mode, scroll_y_out);
 }
 
 static float document_sidebar_row_height(const Document *doc, size_t i, float sb_inner)

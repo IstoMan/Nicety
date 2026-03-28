@@ -15,6 +15,8 @@ enum
 
 static int SDLCALL page_loader_thread_fn(void *data);
 
+static void app_sync_sidebar_visibility(App *self, Application *core);
+
 static void page_loader_init(App *self)
 {
 	self->doc_load_token                = 0;
@@ -357,11 +359,23 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 		if (SDL_GetRenderOutputSize(core->renderer, &rw, &rh))
 		{
 			float layout_w = (float) rw - 4.0f;
-			inner_w        = layout_w - NICETY_DOC_SIDEBAR_OUTER_W - 2.0f * NICETY_DOC_CONTENT_PAD;
+			self->sidebar_visible = (layout_w >= NICETY_DOC_MIN_LAYOUT_W_FOR_SIDEBAR);
+			if (self->sidebar_visible)
+			{
+				inner_w = layout_w - NICETY_DOC_SIDEBAR_OUTER_W - 2.0f * NICETY_DOC_CONTENT_PAD;
+			}
+			else
+			{
+				inner_w = layout_w - 2.0f * NICETY_DOC_CONTENT_PAD;
+			}
 			if (inner_w < 1.0f)
 			{
 				inner_w = 1.0f;
 			}
+		}
+		else
+		{
+			self->sidebar_visible = true;
 		}
 		bool fill = (self->view_mode == VIEW_MODE_FILL);
 		if (document_load_page_window(ctx, core, 0, NICETY_PAGE_WINDOW_RADIUS, file_path_owned, doc, NICETY_RENDER_NORMAL, fill, inner_w) != 0)
@@ -439,6 +453,7 @@ void app_init(App *self)
 	self->sidebar_scroll_valid   = false;
 	self->content_scroll_valid   = false;
 	self->content_viewport_valid = false;
+	self->sidebar_visible        = true;
 	page_loader_init(self);
 }
 
@@ -470,6 +485,9 @@ void app_on_update(App *self, Application *core)
 		break;
 		case FILE_VIEW:
 		{
+			/* Match current window size every frame, not only on WINDOW_RESIZED, so ui_predict_content_viewport
+			 * and Clay layout stay aligned when the sidebar auto-hides or reappears. */
+			app_sync_sidebar_visibility(self, core);
 			bool view_mode_changed = (self->view_mode != self->view_mode_prev);
 			page_loader_try_commit(self, core);
 			if (self->document != NULL && self->document->session != NULL && self->document->session->total_pages > 0 && self->content_scroll_valid && self->content_viewport_valid && self->content_viewport_width > 1.0f && core != NULL)
@@ -501,7 +519,19 @@ void app_on_update(App *self, Application *core)
 				}
 			}
 			self->view_mode_prev = self->view_mode;
-			self->ui_commands    = ui_document_view(*self->document, self);
+			{
+				float lw = 800.0f, lh = 600.0f;
+				if (core != NULL && core->renderer != NULL)
+				{
+					int rw, rh;
+					if (SDL_GetRenderOutputSize(core->renderer, &rw, &rh))
+					{
+						lw = (float) rw;
+						lh = (float) rh;
+					}
+				}
+				self->ui_commands = ui_document_view(*self->document, self, lw, lh);
+			}
 		}
 		break;
 		default:
@@ -518,6 +548,21 @@ static void app_sync_clay_layout_to_renderer(Application *core)
 	}
 }
 
+static void app_sync_sidebar_visibility(App *self, Application *core)
+{
+	int rw, rh;
+
+	if (core == NULL || core->renderer == NULL)
+	{
+		return;
+	}
+	if (!SDL_GetRenderOutputSize(core->renderer, &rw, &rh))
+	{
+		return;
+	}
+	self->sidebar_visible = ((float) rw - 4.0f) >= NICETY_DOC_MIN_LAYOUT_W_FOR_SIDEBAR;
+}
+
 void app_on_event(App *self, Application *core, Event event, float deltaTime)
 {
 	switch (event.type)
@@ -525,6 +570,7 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 		case SDL_EVENT_WINDOW_RESIZED:
 		case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
 			app_sync_clay_layout_to_renderer(core);
+			app_sync_sidebar_visibility(self, core);
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			Clay_SetPointerState((Clay_Vector2) {event.button.x, event.button.y}, event.button.button == SDL_BUTTON_LEFT);

@@ -7,6 +7,14 @@
 
 typedef struct Application Application;
 
+/* Raster quality for PDF pixmaps: sidebar thumbnails use LOW; main view uses NORMAL; HIGH when zoomed (future). */
+typedef enum
+{
+	NICETY_RENDER_LOW,
+	NICETY_RENDER_NORMAL,
+	NICETY_RENDER_HIGH,
+} NicetyRenderMode;
+
 typedef enum
 {
 	COLOR_FORMAT_BGRA,        // 8-bit per channel, premultiplied alpha
@@ -50,8 +58,11 @@ typedef struct
 #define NICETY_DOC_SIDEBAR_PAD 10.0f
 #define NICETY_DOC_SIDEBAR_INTER_GAP 10.0f
 
-/* Max width (CSS-ish) for sidebar thumbnails; scaled from full page pixmap via fz_scale_pixmap. */
+/* Max width (CSS-ish) for NICETY_RENDER_LOW sidebar thumbnails; scaled via fz_scale_pixmap. */
 #define NICETY_SIDEBAR_THUMB_MAX_PX 128.0f
+
+/* Upper bound for NORMAL fill-width upscale vs default ~72 dpi raster (avoids huge pixmaps). */
+#define NICETY_RENDER_NORMAL_FILL_MAX_SCALE 4.0f
 
 typedef struct
 {
@@ -63,9 +74,12 @@ typedef struct
 	float           *page_layout_h;
 	const char      *file_path;
 	/* Arena bump checkpoints: after DocumentContext+Document, before layout; after layout, before Page window array. */
-	u64              arena_checkpoint_after_document;
-	u64              arena_checkpoint_before_pages;
-	b8               page_layout_heap;
+	u64 arena_checkpoint_after_document;
+	u64 arena_checkpoint_before_pages;
+	b8  page_layout_heap;
+	/* Last raster hints (reload when fill mode or content width changes). */
+	float raster_content_inner_w;
+	b8    raster_fill_width_mode;
 } Document;
 
 #define NICETY_PAGE_WINDOW_RADIUS 2
@@ -78,7 +92,56 @@ void             document_context_destroy(DocumentContext *session);
 
 int document_measure_pages(DocumentContext *session, Document *doc);
 int document_load_page_window(DocumentContext *session, Application *app, size_t center, size_t radius,
-                              const char *file_path, Document *doc);
+                              const char *file_path, Document *doc, NicetyRenderMode content_mode, bool fill_width_mode,
+                              float content_inner_width);
+
+/* Pixel density for fill-width raster (matches SDL_GetWindowPixelDensity); use 1 if unknown. */
+float document_app_pixel_density(const Application *app);
+
+/*
+ * CPU-side page window (worker thread): owned pixel buffers for main-thread SDL texture upload.
+ */
+typedef struct NicetyCpuBitmap
+{
+	u8         *samples;
+	u32         width;
+	u32         height;
+	u32         stride;
+	PixelFormat format;
+} NicetyCpuBitmap;
+
+typedef struct NicetyCpuPageSlot
+{
+	size_t          index;
+	NicetyCpuBitmap page;
+	NicetyCpuBitmap thumb;
+} NicetyCpuPageSlot;
+
+typedef struct NicetyPageWindowCpuResult
+{
+	u64                doc_token;
+	u64                request_seq;
+	size_t             center;
+	size_t             from_index;
+	size_t             count;
+	float              raster_content_inner_w;
+	b8                 raster_fill_width_mode;
+	NicetyCpuPageSlot *slots;
+} NicetyPageWindowCpuResult;
+
+void nicety_page_window_cpu_result_free(NicetyPageWindowCpuResult *r);
+
+/* Raster off the UI thread (own fz_context). Returns 0 and sets *out on success. */
+int document_raster_page_window_to_cpu(const char *file_path, const float *page_layout_w, size_t total_pages, size_t center,
+                                       size_t radius, NicetyRenderMode content_mode, bool fill_width_mode, float content_inner_width,
+                                       float pixel_density, u64 doc_token, u64 request_seq, NicetyPageWindowCpuResult **out);
+
+/*
+ * Upload CPU buffers to textures and install into doc (main thread only).
+ * On success (0), consumes and frees cpu. On stale (1), frees cpu. On error (2), frees cpu.
+ */
+int document_commit_page_window_from_cpu(Application *app, DocumentContext *session, Document *doc, const char *file_path,
+                                         NicetyPageWindowCpuResult *cpu, u64 expected_doc_token);
 
 size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float viewport_w, float viewport_h, bool fit_height_mode);
 

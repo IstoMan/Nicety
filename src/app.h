@@ -1,5 +1,5 @@
 #pragma once
-#include <SDL3/SDL_events.h>
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_stdinc.h>
 #include <stdbool.h>
 #include "clay.h"
@@ -37,6 +37,27 @@ typedef struct App
 	float                   content_viewport_width;
 	float                   content_viewport_height;
 	bool                    content_viewport_valid;
+
+	/* Async page window raster (background thread); doc_load_token invalidates in-flight work on close/reopen. */
+	u64                        doc_load_token;
+	SDL_Thread                *page_loader_thread;
+	SDL_Mutex                 *page_loader_mutex;
+	SDL_Condition             *page_loader_cond;
+	bool                       page_loader_shutdown;
+	bool                       page_loader_have_request;
+	u64                        page_loader_request_seq;
+	u64                        page_loader_pending_doc_token;
+	char                      *page_loader_path;
+	float                     *page_loader_layout_w;
+	float                     *page_loader_layout_h;
+	size_t                     page_loader_total_pages;
+	size_t                     page_loader_center;
+	size_t                     page_loader_radius;
+	bool                       page_loader_fill;
+	float                      page_loader_inner_w;
+	float                      page_loader_pixel_density;
+	NicetyPageWindowCpuResult *page_loader_completed;
+	bool                       page_loader_have_completed;
 } App;
 
 void app_init(App *self);

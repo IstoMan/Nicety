@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "clay_renderer_SDL3.h"
 #include "tinyfiledialogs.h"
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +12,276 @@ enum
 {
 	DOCUMENT_ARENA_BYTES = 65536
 };
+
+static int SDLCALL page_loader_thread_fn(void *data);
+
+static void page_loader_init(App *self)
+{
+	self->doc_load_token                = 0;
+	self->page_loader_request_seq       = 0;
+	self->page_loader_pending_doc_token = 0;
+	self->page_loader_shutdown          = false;
+	self->page_loader_have_request      = false;
+	self->page_loader_path              = NULL;
+	self->page_loader_layout_w          = NULL;
+	self->page_loader_layout_h          = NULL;
+	self->page_loader_completed         = NULL;
+	self->page_loader_have_completed    = false;
+	self->page_loader_thread            = NULL;
+	self->page_loader_mutex             = SDL_CreateMutex();
+	self->page_loader_cond              = SDL_CreateCondition();
+	if (self->page_loader_mutex == NULL || self->page_loader_cond == NULL)
+	{
+		fprintf(stderr, "page_loader: SDL_CreateMutex/Condition failed\n");
+		return;
+	}
+	self->page_loader_thread = SDL_CreateThread(page_loader_thread_fn, "nicety_page_loader", self);
+	if (self->page_loader_thread == NULL)
+	{
+		fprintf(stderr, "page_loader: SDL_CreateThread failed\n");
+	}
+}
+
+static void page_loader_cancel(App *self)
+{
+	if (self->page_loader_mutex == NULL)
+	{
+		return;
+	}
+	SDL_LockMutex(self->page_loader_mutex);
+	SDL_free(self->page_loader_path);
+	self->page_loader_path = NULL;
+	free(self->page_loader_layout_w);
+	free(self->page_loader_layout_h);
+	self->page_loader_layout_w     = NULL;
+	self->page_loader_layout_h     = NULL;
+	self->page_loader_have_request = false;
+	if (self->page_loader_completed != NULL)
+	{
+		nicety_page_window_cpu_result_free(self->page_loader_completed);
+		self->page_loader_completed = NULL;
+	}
+	self->page_loader_have_completed = false;
+	SDL_UnlockMutex(self->page_loader_mutex);
+}
+
+static void page_loader_shutdown(App *self)
+{
+	if (self->page_loader_mutex == NULL)
+	{
+		return;
+	}
+	SDL_LockMutex(self->page_loader_mutex);
+	self->page_loader_shutdown = true;
+	SDL_SignalCondition(self->page_loader_cond);
+	SDL_UnlockMutex(self->page_loader_mutex);
+	if (self->page_loader_thread != NULL)
+	{
+		SDL_WaitThread(self->page_loader_thread, NULL);
+		self->page_loader_thread = NULL;
+	}
+	page_loader_cancel(self);
+	SDL_DestroyMutex(self->page_loader_mutex);
+	self->page_loader_mutex = NULL;
+	SDL_DestroyCondition(self->page_loader_cond);
+	self->page_loader_cond = NULL;
+}
+
+static void page_loader_enqueue(App *self, Application *core, Document *doc, size_t center, bool fill, float inner_w)
+{
+	size_t n;
+
+	if (self->page_loader_mutex == NULL || self->page_loader_thread == NULL || doc == NULL || doc->session == NULL || doc->file_path == NULL || doc->page_layout_w == NULL || doc->page_layout_h == NULL || core == NULL)
+	{
+		return;
+	}
+
+	n = doc->session->total_pages;
+
+	SDL_LockMutex(self->page_loader_mutex);
+	SDL_free(self->page_loader_path);
+	self->page_loader_path = NULL;
+	free(self->page_loader_layout_w);
+	free(self->page_loader_layout_h);
+	self->page_loader_layout_w = NULL;
+	self->page_loader_layout_h = NULL;
+
+	self->page_loader_path = SDL_strdup(doc->file_path);
+	if (self->page_loader_path == NULL)
+	{
+		SDL_UnlockMutex(self->page_loader_mutex);
+		return;
+	}
+	if (n > 0)
+	{
+		self->page_loader_layout_w = (float *) malloc(n * sizeof(float));
+		self->page_loader_layout_h = (float *) malloc(n * sizeof(float));
+		if (self->page_loader_layout_w == NULL || self->page_loader_layout_h == NULL)
+		{
+			free(self->page_loader_layout_w);
+			free(self->page_loader_layout_h);
+			self->page_loader_layout_w = NULL;
+			self->page_loader_layout_h = NULL;
+			SDL_free(self->page_loader_path);
+			self->page_loader_path = NULL;
+			SDL_UnlockMutex(self->page_loader_mutex);
+			return;
+		}
+		memcpy(self->page_loader_layout_w, doc->page_layout_w, n * sizeof(float));
+		memcpy(self->page_loader_layout_h, doc->page_layout_h, n * sizeof(float));
+	}
+
+	self->page_loader_total_pages   = n;
+	self->page_loader_center        = center;
+	self->page_loader_radius        = NICETY_PAGE_WINDOW_RADIUS;
+	self->page_loader_fill          = fill;
+	self->page_loader_inner_w       = inner_w;
+	self->page_loader_pixel_density = document_app_pixel_density(core);
+	self->page_loader_request_seq++;
+	self->page_loader_pending_doc_token = self->doc_load_token;
+	self->page_loader_have_request      = true;
+	SDL_SignalCondition(self->page_loader_cond);
+	SDL_UnlockMutex(self->page_loader_mutex);
+
+	/* So next frame we do not enqueue again until scroll/view context changes (window_center still tracks request). */
+	doc->window_center          = center;
+	doc->raster_content_inner_w = inner_w;
+	doc->raster_fill_width_mode = fill ? 1 : 0;
+}
+
+static void page_loader_try_commit(App *self, Application *core)
+{
+	NicetyPageWindowCpuResult *r;
+	u64                        token;
+
+	if (self->page_loader_mutex == NULL || self->document == NULL || self->document_ctx == NULL || core == NULL)
+	{
+		return;
+	}
+
+	SDL_LockMutex(self->page_loader_mutex);
+	if (!self->page_loader_have_completed || self->page_loader_completed == NULL)
+	{
+		SDL_UnlockMutex(self->page_loader_mutex);
+		return;
+	}
+	r                                = self->page_loader_completed;
+	self->page_loader_completed      = NULL;
+	self->page_loader_have_completed = false;
+	token                            = self->doc_load_token;
+	SDL_UnlockMutex(self->page_loader_mutex);
+
+	if (document_commit_page_window_from_cpu(core, self->document_ctx, self->document, self->document->file_path, r, token) != 0)
+	{
+		/* Stale or error; cpu freed inside commit */
+	}
+}
+
+static int SDLCALL page_loader_thread_fn(void *data)
+{
+	App *self = (App *) data;
+
+	for (;;)
+	{
+		char                      *path;
+		float                     *lw;
+		float                     *lh;
+		u64                        my_seq;
+		u64                        my_doc_gen;
+		size_t                     center;
+		size_t                     radius;
+		size_t                     total_pages;
+		bool                       fill;
+		float                      inner_w;
+		float                      density;
+		int                        err;
+		NicetyPageWindowCpuResult *result = NULL;
+
+		SDL_LockMutex(self->page_loader_mutex);
+		while (!self->page_loader_shutdown && !self->page_loader_have_request)
+		{
+			SDL_WaitCondition(self->page_loader_cond, self->page_loader_mutex);
+		}
+		if (self->page_loader_shutdown)
+		{
+			SDL_UnlockMutex(self->page_loader_mutex);
+			break;
+		}
+
+		path        = self->page_loader_path != NULL ? SDL_strdup(self->page_loader_path) : NULL;
+		my_seq      = self->page_loader_request_seq;
+		my_doc_gen  = self->page_loader_pending_doc_token;
+		center      = self->page_loader_center;
+		radius      = self->page_loader_radius;
+		total_pages = self->page_loader_total_pages;
+		fill        = self->page_loader_fill;
+		inner_w     = self->page_loader_inner_w;
+		density     = self->page_loader_pixel_density;
+		lw          = NULL;
+		lh          = NULL;
+		if (total_pages > 0)
+		{
+			lw = (float *) malloc(total_pages * sizeof(float));
+			lh = (float *) malloc(total_pages * sizeof(float));
+			if (lw != NULL && lh != NULL)
+			{
+				memcpy(lw, self->page_loader_layout_w, total_pages * sizeof(float));
+				memcpy(lh, self->page_loader_layout_h, total_pages * sizeof(float));
+			}
+		}
+		self->page_loader_have_request = false;
+		SDL_UnlockMutex(self->page_loader_mutex);
+
+		if (path == NULL || (total_pages > 0 && (lw == NULL || lh == NULL)))
+		{
+			free(lw);
+			free(lh);
+			SDL_free(path);
+			continue;
+		}
+
+		err = document_raster_page_window_to_cpu(path, lw, total_pages, center, radius, NICETY_RENDER_NORMAL, fill, inner_w, density,
+		                                         my_doc_gen, my_seq, &result);
+		free(lw);
+		free(lh);
+		SDL_free(path);
+
+		if (err != 0 || result == NULL)
+		{
+			continue;
+		}
+
+		SDL_LockMutex(self->page_loader_mutex);
+		if (self->page_loader_shutdown)
+		{
+			nicety_page_window_cpu_result_free(result);
+			SDL_UnlockMutex(self->page_loader_mutex);
+			continue;
+		}
+		if (my_doc_gen != self->doc_load_token)
+		{
+			nicety_page_window_cpu_result_free(result);
+			SDL_UnlockMutex(self->page_loader_mutex);
+			continue;
+		}
+		if (my_seq != self->page_loader_request_seq)
+		{
+			nicety_page_window_cpu_result_free(result);
+			SDL_UnlockMutex(self->page_loader_mutex);
+			continue;
+		}
+		if (self->page_loader_completed != NULL)
+		{
+			nicety_page_window_cpu_result_free(self->page_loader_completed);
+			self->page_loader_completed = NULL;
+		}
+		self->page_loader_completed      = result;
+		self->page_loader_have_completed = true;
+		SDL_UnlockMutex(self->page_loader_mutex);
+	}
+
+	return 0;
+}
 
 static bool path_has_pdf_extension(const char *path)
 {
@@ -30,6 +301,11 @@ static bool path_has_pdf_extension(const char *path)
 
 static void app_close_document(App *self)
 {
+	if (self->document != NULL)
+	{
+		self->doc_load_token++;
+	}
+	page_loader_cancel(self);
 	if (self->document != NULL)
 	{
 		document_destroy(self->document_ctx, self->document);
@@ -67,7 +343,7 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 
 	doc = PUSH_STRUCT(arena, Document);
 	memset(doc, 0, sizeof *doc);
-	doc->session                       = ctx;
+	doc->session                         = ctx;
 	doc->arena_checkpoint_after_document = arena->pos;
 
 	if (document_measure_pages(ctx, doc) != 0)
@@ -75,15 +351,30 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 		goto fail_ctx;
 	}
 
-	if (document_load_page_window(ctx, core, 0, NICETY_PAGE_WINDOW_RADIUS, file_path_owned, doc) != 0)
 	{
-		document_destroy(ctx, doc);
-		goto fail_ctx;
+		float inner_w = 1.0f;
+		int   rw, rh;
+		if (SDL_GetRenderOutputSize(core->renderer, &rw, &rh))
+		{
+			float layout_w = (float) rw - 4.0f;
+			inner_w        = layout_w - NICETY_DOC_SIDEBAR_OUTER_W - 2.0f * NICETY_DOC_CONTENT_PAD;
+			if (inner_w < 1.0f)
+			{
+				inner_w = 1.0f;
+			}
+		}
+		bool fill = (self->view_mode == VIEW_MODE_FILL);
+		if (document_load_page_window(ctx, core, 0, NICETY_PAGE_WINDOW_RADIUS, file_path_owned, doc, NICETY_RENDER_NORMAL, fill, inner_w) != 0)
+		{
+			document_destroy(ctx, doc);
+			goto fail_ctx;
+		}
 	}
 
 	self->document_arena = arena;
 	self->document_ctx   = ctx;
 	self->document       = doc;
+	self->doc_load_token++;
 	self->view_mode_prev = self->view_mode;
 	return 0;
 
@@ -118,15 +409,14 @@ static void app_toggle_view_mode(App *self)
 {
 	bool old_fit = (self->view_mode == VIEW_MODE_FIT_HEIGHT);
 
-	if (self->document != NULL && self->document->session != NULL && self->document->session->total_pages > 0
-	    && self->content_scroll_valid && self->content_viewport_valid && self->content_viewport_width > 1.0f)
+	if (self->document != NULL && self->document->session != NULL && self->document->session->total_pages > 0 && self->content_scroll_valid && self->content_viewport_valid && self->content_viewport_width > 1.0f)
 	{
 		float new_y;
 		if (document_remap_scroll_y_for_view_mode(self->document, self->content_scroll_offset.y, self->content_viewport_width,
 		                                          self->content_viewport_height, old_fit, !old_fit, &new_y))
 		{
 			self->content_scroll_offset.y = new_y;
-			Clay_ScrollContainerData cd = Clay_GetScrollContainerData(CLAY_ID("Content"));
+			Clay_ScrollContainerData cd   = Clay_GetScrollContainerData(CLAY_ID("Content"));
 			if (cd.found && cd.scrollPosition)
 			{
 				cd.scrollPosition->y = new_y;
@@ -140,19 +430,21 @@ static void app_toggle_view_mode(App *self)
 void app_init(App *self)
 {
 	memset(self, 0, sizeof *self);
-	self->sensitivity          = 3;
-	self->program_state        = LOAD_FILE;
-	self->view_mode_prev       = VIEW_MODE_FILL;
-	self->document             = NULL;
-	self->document_ctx         = NULL;
-	self->document_arena       = NULL;
-	self->sidebar_scroll_valid = false;
-	self->content_scroll_valid = false;
+	self->sensitivity            = 3;
+	self->program_state          = LOAD_FILE;
+	self->view_mode_prev         = VIEW_MODE_FILL;
+	self->document               = NULL;
+	self->document_ctx           = NULL;
+	self->document_arena         = NULL;
+	self->sidebar_scroll_valid   = false;
+	self->content_scroll_valid   = false;
 	self->content_viewport_valid = false;
+	page_loader_init(self);
 }
 
 void app_destroy(App *self)
 {
+	page_loader_shutdown(self);
 	app_close_document(self);
 }
 
@@ -179,25 +471,37 @@ void app_on_update(App *self, Application *core)
 		case FILE_VIEW:
 		{
 			bool view_mode_changed = (self->view_mode != self->view_mode_prev);
-			if (self->document != NULL && self->document->session != NULL && self->document->session->total_pages > 0
-			    && self->content_scroll_valid && self->content_viewport_valid && self->content_viewport_width > 1.0f
-			    && core != NULL && !view_mode_changed)
+			page_loader_try_commit(self, core);
+			if (self->document != NULL && self->document->session != NULL && self->document->session->total_pages > 0 && self->content_scroll_valid && self->content_viewport_valid && self->content_viewport_width > 1.0f && core != NULL)
 			{
-				bool fit = (self->view_mode == VIEW_MODE_FIT_HEIGHT);
-				size_t c = document_page_at_scroll_y(self->document, self->content_scroll_offset.y, self->content_viewport_width,
-				                                       self->content_viewport_height, fit);
-				if (c != self->document->window_center)
+				bool   fit     = (self->view_mode == VIEW_MODE_FIT_HEIGHT);
+				size_t c       = document_page_at_scroll_y(self->document, self->content_scroll_offset.y, self->content_viewport_width,
+				                                           self->content_viewport_height, fit);
+				bool   fill    = (self->view_mode == VIEW_MODE_FILL);
+				float  inner_w = self->content_viewport_width - 2.0f * NICETY_DOC_CONTENT_PAD;
+				if (inner_w < 1.0f)
 				{
-					if (document_load_page_window(self->document_ctx, core, c, NICETY_PAGE_WINDOW_RADIUS, self->document->file_path,
-					                              self->document)
-					    != 0)
+					inner_w = 1.0f;
+				}
+
+				bool center_moved = (c != self->document->window_center);
+				bool ctx_changed  = (fill != (bool) self->document->raster_fill_width_mode) || (fabsf(inner_w - self->document->raster_content_inner_w) > 3.0f);
+
+				if (center_moved || view_mode_changed || ctx_changed)
+				{
+					if (self->page_loader_thread != NULL)
+					{
+						page_loader_enqueue(self, core, self->document, c, fill, inner_w);
+					}
+					else if (document_load_page_window(self->document_ctx, core, c, NICETY_PAGE_WINDOW_RADIUS, self->document->file_path,
+					                                   self->document, NICETY_RENDER_NORMAL, fill, inner_w) != 0)
 					{
 						fprintf(stderr, "document_load_page_window failed\n");
 					}
 				}
 			}
 			self->view_mode_prev = self->view_mode;
-			self->ui_commands = ui_document_view(*self->document, self);
+			self->ui_commands    = ui_document_view(*self->document, self);
 		}
 		break;
 		default:
@@ -224,8 +528,7 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			Clay_SetPointerState((Clay_Vector2) {event.button.x, event.button.y}, event.button.button == SDL_BUTTON_LEFT);
-			if (self->program_state == FILE_VIEW && event.button.button == SDL_BUTTON_LEFT
-			    && Clay_PointerOver(Clay_GetElementId(CLAY_STRING("ViewModeBtn"))))
+			if (self->program_state == FILE_VIEW && event.button.button == SDL_BUTTON_LEFT && Clay_PointerOver(Clay_GetElementId(CLAY_STRING("ViewModeBtn"))))
 			{
 				app_toggle_view_mode(self);
 			}

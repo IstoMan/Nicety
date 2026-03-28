@@ -15,9 +15,9 @@ void handle_clay_errors(Clay_ErrorData errorData)
 
 static inline Clay_Dimensions SDL_MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, void *userData)
 {
-	TTF_Font **fonts = userData;
-	TTF_Font  *font  = fonts[config->fontId];
-	int        width, height;
+	TTF_Font   **fonts = userData;
+	TTF_Font    *font  = fonts[config->fontId];
+	int          width, height;
 	static int   s_last_measure_font_id   = -1;
 	static float s_last_measure_font_size = -1.0f;
 

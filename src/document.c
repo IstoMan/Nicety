@@ -8,6 +8,70 @@
 
 typedef float (*document_visible_row_height_fn)(const Document *doc, size_t i, void *ctx);
 
+static float document_thumb_max_edge_px(NicetyRenderMode mode)
+{
+	switch (mode)
+	{
+		case NICETY_RENDER_LOW:
+			return NICETY_SIDEBAR_THUMB_MAX_PX;
+		default:
+			return NICETY_SIDEBAR_THUMB_MAX_PX;
+	}
+}
+
+float document_app_pixel_density(const Application *app)
+{
+	if (app == NULL)
+	{
+		return 1.0f;
+	}
+	SDL_Window *win = SDL_GetRenderWindow(app->renderer);
+	if (win == NULL)
+	{
+		return 1.0f;
+	}
+	return SDL_GetWindowPixelDensity(win);
+}
+
+static fz_matrix document_content_page_ctm_density(NicetyRenderMode content_mode, bool fill_width_mode, float content_inner_width,
+                                                   float page_w_pts, float pixel_density)
+{
+	switch (content_mode)
+	{
+		case NICETY_RENDER_HIGH:
+			/* Same as normal until zoom supplies a scale matrix. */
+			break;
+		case NICETY_RENDER_NORMAL:
+			if (fill_width_mode && content_inner_width > 1.0f && page_w_pts > 0.5f)
+			{
+				float d         = pixel_density > 0.0f ? pixel_density : 1.0f;
+				float target_px = content_inner_width * d;
+				float s         = target_px / page_w_pts;
+				if (s < 1.0f)
+				{
+					s = 1.0f;
+				}
+				if (s > NICETY_RENDER_NORMAL_FILL_MAX_SCALE)
+				{
+					s = NICETY_RENDER_NORMAL_FILL_MAX_SCALE;
+				}
+				return fz_scale(s, s);
+			}
+			break;
+		case NICETY_RENDER_LOW:
+		default:
+			break;
+	}
+	return fz_identity;
+}
+
+static fz_matrix document_content_page_ctm(NicetyRenderMode content_mode, bool fill_width_mode, float content_inner_width,
+                                           float page_w_pts, Application *app)
+{
+	return document_content_page_ctm_density(content_mode, fill_width_mode, content_inner_width, page_w_pts,
+	                                         document_app_pixel_density(app));
+}
+
 static int sdl_pixel_format(PixelFormat fmt)
 {
 	return fmt == COLOR_FORMAT_RGB ? SDL_PIXELFORMAT_RGB24 : SDL_PIXELFORMAT_RGBA32;
@@ -234,8 +298,8 @@ bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_i
 		}
 	}
 
-	rh_new         = content_row_height(doc, page, inner_w, viewport_h, to_fit_height);
-	y_target_new   = y_start_new + frac * rh_new;
+	rh_new       = content_row_height(doc, page, inner_w, viewport_h, to_fit_height);
+	y_target_new = y_start_new + frac * rh_new;
 
 	if (viewport_h <= 0.0f)
 	{
@@ -333,24 +397,24 @@ static void document_visible_range_impl(const Document *doc, float scroll_y, flo
 
 	if (viewport_h <= 1.0f)
 	{
-		*out_lo = 0;
-		*out_hi = n - 1;
+		*out_lo         = 0;
+		*out_hi         = n - 1;
 		*out_spacer_top = *out_spacer_bottom = 0.0f;
 		return;
 	}
 
 	{
-		float   top = -scroll_y;
-		float   bot = top + viewport_h;
-		float   o   = NICETY_UI_VIRTUAL_OVERSCAN_PX;
-		float   y   = edge_pad;
-		size_t  lo  = n;
-		size_t  hi  = 0;
-		size_t  i;
+		float  top = -scroll_y;
+		float  bot = top + viewport_h;
+		float  o   = NICETY_UI_VIRTUAL_OVERSCAN_PX;
+		float  y   = edge_pad;
+		size_t lo  = n;
+		size_t hi  = 0;
+		size_t i;
 
 		for (i = 0; i < n; i++)
 		{
-			float h     = row_h(doc, i, row_ctx);
+			float h      = row_h(doc, i, row_ctx);
 			float y_next = y + h;
 
 			if (y_next > top - o && y < bot + o)
@@ -498,8 +562,8 @@ int document_measure_pages(DocumentContext *session, Document *doc)
 
 	if (arena_can_push_two_float_arrays(arena, n))
 	{
-		doc->page_layout_w = PUSH_ARRAY(arena, float, n);
-		doc->page_layout_h = PUSH_ARRAY(arena, float, n);
+		doc->page_layout_w    = PUSH_ARRAY(arena, float, n);
+		doc->page_layout_h    = PUSH_ARRAY(arena, float, n);
 		doc->page_layout_heap = false;
 	}
 	else
@@ -569,7 +633,7 @@ static void release_page_window(Document *doc, Page *pages, size_t texture_count
 }
 
 int document_load_page_window(DocumentContext *session, Application *app, size_t center, size_t radius, const char *file_path,
-                              Document *doc)
+                              Document *doc, NicetyRenderMode content_mode, bool fill_width_mode, float content_inner_width)
 {
 	if (session == NULL || app == NULL || doc == NULL || file_path == NULL)
 	{
@@ -627,7 +691,9 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 	{
 		size_t i = from + k;
 		page     = fz_load_page(session->ctx, session->doc, (int) i);
-		pix      = fz_new_pixmap_from_page(session->ctx, page, fz_identity, fz_device_rgb(session->ctx), 0);
+		pix      = fz_new_pixmap_from_page(session->ctx, page,
+		                                   document_content_page_ctm(content_mode, fill_width_mode, content_inner_width, doc->page_layout_w[i], app),
+		                                   fz_device_rgb(session->ctx), 0);
 
 		u32    format;
 		Bitmap page_bitmap;
@@ -664,8 +730,8 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 		memset(&pages[k].thumb_bitmap, 0, sizeof pages[k].thumb_bitmap);
 		if (pix->w > 0)
 		{
-			float    tw   = NICETY_SIDEBAR_THUMB_MAX_PX;
-			float    th   = tw * (float) pix->h / (float) pix->w;
+			float      tw   = document_thumb_max_edge_px(NICETY_RENDER_LOW);
+			float      th   = tw * (float) pix->h / (float) pix->w;
 			fz_pixmap *tpix = fz_scale_pixmap(session->ctx, pix, 0.0f, 0.0f, tw, th, NULL);
 
 			if (tpix != NULL)
@@ -699,11 +765,365 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 		page = NULL;
 	}
 
-	doc->session         = session;
-	doc->pages           = pages;
-	doc->number_of_pages = count;
-	doc->file_path       = file_path;
-	doc->window_center   = center;
+	doc->session                = session;
+	doc->pages                  = pages;
+	doc->number_of_pages        = count;
+	doc->file_path              = file_path;
+	doc->window_center          = center;
+	doc->raster_content_inner_w = content_inner_width;
+	doc->raster_fill_width_mode = fill_width_mode ? 1 : 0;
+	return 0;
+}
+
+void nicety_page_window_cpu_result_free(NicetyPageWindowCpuResult *r)
+{
+	size_t i;
+
+	if (r == NULL)
+	{
+		return;
+	}
+	if (r->slots != NULL)
+	{
+		for (i = 0; i < r->count; i++)
+		{
+			free(r->slots[i].page.samples);
+			free(r->slots[i].thumb.samples);
+		}
+		free(r->slots);
+	}
+	free(r);
+}
+
+static int nicety_copy_pixmap_to_cpu(fz_pixmap *pix, NicetyCpuBitmap *out)
+{
+	size_t nbytes;
+
+	if (pix->n != 3 && pix->n != 4)
+	{
+		return 1;
+	}
+	out->format  = pix->n == 3 ? COLOR_FORMAT_RGB : COLOR_FORMAT_RGBA;
+	out->width   = (u32) pix->w;
+	out->height  = (u32) pix->h;
+	out->stride  = (u32) pix->stride;
+	nbytes       = (size_t) pix->stride * (size_t) pix->h;
+	out->samples = (u8 *) malloc(nbytes);
+	if (out->samples == NULL)
+	{
+		return 1;
+	}
+	memcpy(out->samples, pix->samples, nbytes);
+	return 0;
+}
+
+static void nicety_cpu_bitmap_clear(NicetyCpuBitmap *b)
+{
+	b->samples = NULL;
+	b->width = b->height = b->stride = 0;
+	b->format                        = COLOR_FORMAT_RGB;
+}
+
+int document_raster_page_window_to_cpu(const char *file_path, const float *page_layout_w, size_t total_pages, size_t center,
+                                       size_t radius, NicetyRenderMode content_mode, bool fill_width_mode, float content_inner_width,
+                                       float pixel_density, u64 doc_token, u64 request_seq, NicetyPageWindowCpuResult **out)
+{
+	fz_context                *ctx    = NULL;
+	fz_document               *doc    = NULL;
+	NicetyPageWindowCpuResult *result = NULL;
+	NicetyCpuPageSlot         *slots  = NULL;
+	size_t                     from;
+	size_t                     till;
+	size_t                     count;
+	size_t                     k;
+
+	if (out == NULL || file_path == NULL || page_layout_w == NULL)
+	{
+		return 1;
+	}
+	*out = NULL;
+
+	if (total_pages == 0)
+	{
+		result = (NicetyPageWindowCpuResult *) calloc(1, sizeof *result);
+		if (result == NULL)
+		{
+			return 1;
+		}
+		result->doc_token              = doc_token;
+		result->request_seq            = request_seq;
+		result->center                 = 0;
+		result->from_index             = 0;
+		result->count                  = 0;
+		result->raster_content_inner_w = content_inner_width;
+		result->raster_fill_width_mode = fill_width_mode ? 1 : 0;
+		result->slots                  = NULL;
+		*out                           = result;
+		return 0;
+	}
+
+	if (center >= total_pages)
+	{
+		center = total_pages - 1;
+	}
+	from = center > radius ? center - radius : 0;
+	till = center + radius;
+	if (till >= total_pages)
+	{
+		till = total_pages - 1;
+	}
+	if (from > till)
+	{
+		return 1;
+	}
+	count = till - from + 1;
+
+	result = (NicetyPageWindowCpuResult *) calloc(1, sizeof *result);
+	slots  = (NicetyCpuPageSlot *) calloc(count, sizeof *slots);
+	if (result == NULL || slots == NULL)
+	{
+		free(result);
+		free(slots);
+		return 1;
+	}
+	result->slots                  = slots;
+	result->doc_token              = doc_token;
+	result->request_seq            = request_seq;
+	result->center                 = center;
+	result->from_index             = from;
+	result->count                  = count;
+	result->raster_content_inner_w = content_inner_width;
+	result->raster_fill_width_mode = fill_width_mode ? 1 : 0;
+
+	ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
+	if (ctx == NULL)
+	{
+		nicety_page_window_cpu_result_free(result);
+		return 1;
+	}
+	fz_register_document_handlers(ctx);
+	fz_try(ctx)
+	{
+		doc = fz_open_document(ctx, file_path);
+	}
+	fz_catch(ctx)
+	{
+		doc = NULL;
+	}
+	if (doc == NULL)
+	{
+		fz_drop_context(ctx);
+		nicety_page_window_cpu_result_free(result);
+		return 1;
+	}
+
+	for (k = 0; k < count; k++)
+	{
+		size_t     i;
+		fz_page   *page = NULL;
+		fz_pixmap *pix  = NULL;
+		fz_pixmap *tpix = NULL;
+
+		i = from + k;
+		nicety_cpu_bitmap_clear(&slots[k].page);
+		nicety_cpu_bitmap_clear(&slots[k].thumb);
+		slots[k].index = i;
+
+		fz_try(ctx)
+		{
+			page = fz_load_page(ctx, doc, (int) i);
+			pix  = fz_new_pixmap_from_page(ctx, page,
+			                               document_content_page_ctm_density(content_mode, fill_width_mode, content_inner_width,
+			                                                                 page_layout_w[i], pixel_density),
+			                               fz_device_rgb(ctx), 0);
+		}
+		fz_catch(ctx)
+		{
+			page = NULL;
+			pix  = NULL;
+		}
+		if (page == NULL || pix == NULL)
+		{
+			if (page != NULL)
+			{
+				fz_drop_page(ctx, page);
+			}
+			if (pix != NULL)
+			{
+				fz_drop_pixmap(ctx, pix);
+			}
+			fz_drop_document(ctx, doc);
+			fz_drop_context(ctx);
+			nicety_page_window_cpu_result_free(result);
+			return 1;
+		}
+
+		if (nicety_copy_pixmap_to_cpu(pix, &slots[k].page) != 0)
+		{
+			fz_drop_pixmap(ctx, pix);
+			fz_drop_page(ctx, page);
+			fz_drop_document(ctx, doc);
+			fz_drop_context(ctx);
+			nicety_page_window_cpu_result_free(result);
+			return 1;
+		}
+
+		if (pix->w > 0)
+		{
+			float tw = document_thumb_max_edge_px(NICETY_RENDER_LOW);
+			float th = tw * (float) pix->h / (float) pix->w;
+			fz_try(ctx)
+			{
+				tpix = fz_scale_pixmap(ctx, pix, 0.0f, 0.0f, tw, th, NULL);
+			}
+			fz_catch(ctx)
+			{
+				tpix = NULL;
+			}
+			if (tpix != NULL)
+			{
+				if (tpix->n == 3 || tpix->n == 4)
+				{
+					if (nicety_copy_pixmap_to_cpu(tpix, &slots[k].thumb) != 0)
+					{
+						fz_drop_pixmap(ctx, tpix);
+						fz_drop_pixmap(ctx, pix);
+						fz_drop_page(ctx, page);
+						fz_drop_document(ctx, doc);
+						fz_drop_context(ctx);
+						nicety_page_window_cpu_result_free(result);
+						return 1;
+					}
+				}
+				fz_drop_pixmap(ctx, tpix);
+				tpix = NULL;
+			}
+		}
+
+		fz_drop_pixmap(ctx, pix);
+		fz_drop_page(ctx, page);
+	}
+
+	fz_drop_document(ctx, doc);
+	fz_drop_context(ctx);
+	*out = result;
+	return 0;
+}
+
+int document_commit_page_window_from_cpu(Application *app, DocumentContext *session, Document *doc, const char *file_path,
+                                         NicetyPageWindowCpuResult *cpu, u64 expected_doc_token)
+{
+	mem_arena *arena;
+	Page      *pages;
+	size_t     k;
+
+	if (app == NULL || session == NULL || doc == NULL || cpu == NULL)
+	{
+		if (cpu != NULL)
+		{
+			nicety_page_window_cpu_result_free(cpu);
+		}
+		return 2;
+	}
+
+	if (cpu->doc_token != expected_doc_token)
+	{
+		nicety_page_window_cpu_result_free(cpu);
+		return 1;
+	}
+	if (doc->file_path == NULL || file_path == NULL || strcmp(doc->file_path, file_path) != 0)
+	{
+		nicety_page_window_cpu_result_free(cpu);
+		return 1;
+	}
+
+	if (session->total_pages == 0)
+	{
+		if (doc->pages != NULL)
+		{
+			pages_destroy_textures(doc->pages, doc->number_of_pages);
+			arena_pop_to(session->document_arena, doc->arena_checkpoint_before_pages);
+			doc->pages           = NULL;
+			doc->number_of_pages = 0;
+		}
+		doc->session                = session;
+		doc->file_path              = file_path;
+		doc->window_center          = cpu->center;
+		doc->raster_content_inner_w = cpu->raster_content_inner_w;
+		doc->raster_fill_width_mode = cpu->raster_fill_width_mode;
+		nicety_page_window_cpu_result_free(cpu);
+		return 0;
+	}
+
+	if (cpu->count == 0)
+	{
+		nicety_page_window_cpu_result_free(cpu);
+		return 2;
+	}
+
+	arena = session->document_arena;
+	if (doc->pages != NULL)
+	{
+		pages_destroy_textures(doc->pages, doc->number_of_pages);
+		arena_pop_to(arena, doc->arena_checkpoint_before_pages);
+		doc->pages           = NULL;
+		doc->number_of_pages = 0;
+	}
+
+	if (!arena_can_push(arena, (u64) cpu->count * sizeof(Page)))
+	{
+		nicety_page_window_cpu_result_free(cpu);
+		return 2;
+	}
+	pages = PUSH_ARRAY(arena, Page, cpu->count);
+
+	for (k = 0; k < cpu->count; k++)
+	{
+		NicetyCpuPageSlot *slot = &cpu->slots[k];
+		Bitmap             page_bm;
+
+		page_bm.width         = slot->page.width;
+		page_bm.height        = slot->page.height;
+		page_bm.format        = slot->page.format;
+		page_bm.rows_per_byte = slot->page.stride;
+		page_bm.pixel_data    = slot->page.samples;
+
+		pages[k].index         = slot->index;
+		pages[k].thumb_texture = NULL;
+		memset(&pages[k].thumb_bitmap, 0, sizeof pages[k].thumb_bitmap);
+		pages[k].page_bitmap = page_bm;
+
+		page_upload_texture(app, &page_bm, &pages[k].page_texture);
+		free(slot->page.samples);
+		slot->page.samples              = NULL;
+		pages[k].page_bitmap.pixel_data = NULL;
+
+		if (slot->thumb.width > 0 && slot->thumb.samples != NULL)
+		{
+			Bitmap thumb_bm;
+			thumb_bm.width         = slot->thumb.width;
+			thumb_bm.height        = slot->thumb.height;
+			thumb_bm.format        = slot->thumb.format;
+			thumb_bm.rows_per_byte = slot->thumb.stride;
+			thumb_bm.pixel_data    = slot->thumb.samples;
+			pages[k].thumb_bitmap  = thumb_bm;
+			page_init_thumb(&pages[k], app);
+			free(slot->thumb.samples);
+			slot->thumb.samples              = NULL;
+			pages[k].thumb_bitmap.pixel_data = NULL;
+		}
+	}
+
+	doc->session                = session;
+	doc->pages                  = pages;
+	doc->number_of_pages        = cpu->count;
+	doc->file_path              = file_path;
+	doc->window_center          = cpu->center;
+	doc->raster_content_inner_w = cpu->raster_content_inner_w;
+	doc->raster_fill_width_mode = cpu->raster_fill_width_mode;
+
+	free(cpu->slots);
+	free(cpu);
 	return 0;
 }
 

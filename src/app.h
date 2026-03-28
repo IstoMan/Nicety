@@ -53,7 +53,9 @@ typedef struct App
 	float                     *page_loader_layout_h;
 	size_t                     page_loader_total_pages;
 	size_t                     page_loader_center;
-	size_t                     page_loader_radius;
+	size_t                     page_loader_center_sidebar;
+	size_t                     page_loader_radius_main;
+	size_t                     page_loader_radius_sidebar;
 	bool                       page_loader_fill;
 	float                      page_loader_inner_w;
 	float                      page_loader_pixel_density;

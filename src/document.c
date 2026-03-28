@@ -73,6 +73,60 @@ static fz_matrix document_content_page_ctm(NicetyRenderMode content_mode, bool f
 	                                         document_app_pixel_density(app));
 }
 
+static bool document_page_index_in_main_band(size_t i, size_t center, size_t r_main)
+{
+	if (i <= center)
+	{
+		return (center - i) <= r_main;
+	}
+	return (i - center) <= r_main;
+}
+
+/* Union of main interval [c_main - r_main, c_main + r_main] and sidebar [c_side - r_side, c_side + r_side]. */
+static void document_page_window_union_range_dual(size_t center_main, size_t center_sidebar, size_t r_main, size_t r_sidebar,
+                                                  size_t total_pages, size_t *out_from, size_t *out_till)
+{
+	size_t from_m = center_main > r_main ? center_main - r_main : 0;
+	size_t till_m = center_main + r_main;
+	size_t from_s = center_sidebar > r_sidebar ? center_sidebar - r_sidebar : 0;
+	size_t till_s = center_sidebar + r_sidebar;
+	size_t from   = from_m < from_s ? from_m : from_s;
+	size_t till   = till_m > till_s ? till_m : till_s;
+
+	if (total_pages == 0)
+	{
+		*out_from = 0;
+		*out_till = 0;
+		return;
+	}
+	if (till >= total_pages)
+	{
+		till = total_pages - 1;
+	}
+	*out_from = from;
+	*out_till = till;
+}
+
+static fz_matrix document_thumb_only_page_ctm(float page_w_pts, float pixel_density)
+{
+	float d  = pixel_density > 0.0f ? pixel_density : 1.0f;
+	float tw = document_thumb_max_edge_px(NICETY_RENDER_LOW);
+	if (page_w_pts < 0.5f)
+	{
+		return fz_identity;
+	}
+	float s = (tw * d) / page_w_pts;
+	if (s < 1e-6f)
+	{
+		s = 1e-6f;
+	}
+	if (s > NICETY_RENDER_NORMAL_FILL_MAX_SCALE)
+	{
+		s = NICETY_RENDER_NORMAL_FILL_MAX_SCALE;
+	}
+	return fz_scale(s, s);
+}
+
 static int sdl_pixel_format(PixelFormat fmt)
 {
 	return fmt == COLOR_FORMAT_RGB ? SDL_PIXELFORMAT_RGB24 : SDL_PIXELFORMAT_RGBA32;
@@ -225,6 +279,11 @@ static float inner_w_from_viewport_w(float viewport_w)
 	return inner_w < 1.0f ? 1.0f : inner_w;
 }
 
+<<<<<<< HEAD
+=======
+static float document_sidebar_row_height(const Document *doc, size_t i, float sb_inner);
+
+>>>>>>> sidebar
 /*
  * Map scroll_y so the viewport center stays at the same fraction along the same page when layout changes.
  * Old vs new may differ in viewport size and/or fit-height vs fill.
@@ -372,6 +431,298 @@ bool document_remap_scroll_y_for_viewport_change(const Document *doc, float scro
 	                                       fit_height_mode, scroll_y_out);
 }
 
+<<<<<<< HEAD
+=======
+size_t document_page_at_sidebar_scroll_y(const Document *doc, float scroll_y, float sb_inner, float viewport_h)
+{
+	if (doc == NULL || doc->session == NULL || doc->page_layout_w == NULL || doc->session->total_pages == 0)
+	{
+		return 0;
+	}
+
+	size_t total = doc->session->total_pages;
+	float  y_target;
+	if (viewport_h <= 0.0f)
+	{
+		y_target = -scroll_y;
+	}
+	else
+	{
+		y_target = -scroll_y + viewport_h * 0.5f;
+	}
+
+	float y = NICETY_DOC_SIDEBAR_PAD;
+	for (size_t i = 0; i < total; i++)
+	{
+		float rh = document_sidebar_row_height(doc, i, sb_inner);
+		if (y_target < y + rh)
+		{
+			return i;
+		}
+		y += rh;
+		if (i + 1 < total)
+		{
+			y += NICETY_DOC_SIDEBAR_INTER_GAP;
+		}
+	}
+	return total - 1;
+}
+
+/*
+ * Same anchor semantics as document_remap_scroll_y_unified for the sidebar lane when viewport height changes.
+ */
+static bool document_remap_sidebar_scroll_y_unified(const Document *doc, float scroll_y_in, float sb_inner_old, float viewport_h_old,
+                                                    float sb_inner_new, float viewport_h_new, float *scroll_y_out)
+{
+	size_t n;
+	float  y_target;
+	size_t page;
+	float  y_start_old;
+	float  rh_old;
+	float  frac;
+	float  y_start_new;
+	float  rh_new;
+	float  y_target_new;
+	float  scroll_out;
+	float  total_h;
+	float  max_neg;
+
+	if (scroll_y_out == NULL || doc == NULL || doc->session == NULL || doc->page_layout_w == NULL || doc->session->total_pages == 0)
+	{
+		return false;
+	}
+
+	if (fabsf(sb_inner_old - sb_inner_new) < NICETY_SCROLL_REMAP_EPS && fabsf(viewport_h_old - viewport_h_new) < NICETY_SCROLL_REMAP_EPS)
+	{
+		*scroll_y_out = scroll_y_in;
+		return true;
+	}
+
+	n    = doc->session->total_pages;
+	page = document_page_at_sidebar_scroll_y(doc, scroll_y_in, sb_inner_old, viewport_h_old);
+
+	if (viewport_h_old <= 0.0f)
+	{
+		y_target = -scroll_y_in;
+	}
+	else
+	{
+		y_target = -scroll_y_in + viewport_h_old * 0.5f;
+	}
+
+	y_start_old = NICETY_DOC_SIDEBAR_PAD;
+	for (size_t i = 0; i < page; i++)
+	{
+		y_start_old += document_sidebar_row_height(doc, i, sb_inner_old);
+		if (i + 1 < n)
+		{
+			y_start_old += NICETY_DOC_SIDEBAR_INTER_GAP;
+		}
+	}
+
+	rh_old = document_sidebar_row_height(doc, page, sb_inner_old);
+	frac   = 0.0f;
+	if (rh_old > 1e-6f)
+	{
+		frac = (y_target - y_start_old) / rh_old;
+		if (frac < 0.0f)
+		{
+			frac = 0.0f;
+		}
+		else if (frac > 1.0f)
+		{
+			frac = 1.0f;
+		}
+	}
+
+	y_start_new = NICETY_DOC_SIDEBAR_PAD;
+	for (size_t i = 0; i < page; i++)
+	{
+		y_start_new += document_sidebar_row_height(doc, i, sb_inner_new);
+		if (i + 1 < n)
+		{
+			y_start_new += NICETY_DOC_SIDEBAR_INTER_GAP;
+		}
+	}
+
+	rh_new       = document_sidebar_row_height(doc, page, sb_inner_new);
+	y_target_new = y_start_new + frac * rh_new;
+
+	if (viewport_h_new <= 0.0f)
+	{
+		scroll_out = -y_target_new;
+	}
+	else
+	{
+		scroll_out = -(y_target_new - viewport_h_new * 0.5f);
+	}
+
+	total_h = NICETY_DOC_SIDEBAR_PAD;
+	for (size_t i = 0; i < n; i++)
+	{
+		total_h += document_sidebar_row_height(doc, i, sb_inner_new);
+		if (i + 1 < n)
+		{
+			total_h += NICETY_DOC_SIDEBAR_INTER_GAP;
+		}
+	}
+	total_h += NICETY_DOC_SIDEBAR_PAD;
+
+	if (viewport_h_new > 1.0f && total_h <= viewport_h_new)
+	{
+		*scroll_y_out = 0.0f;
+		return true;
+	}
+
+	max_neg = 0.0f;
+	if (viewport_h_new > 1.0f && total_h > viewport_h_new)
+	{
+		max_neg = -(total_h - viewport_h_new);
+	}
+
+	if (scroll_out > 0.0f)
+	{
+		scroll_out = 0.0f;
+	}
+	if (scroll_out < max_neg)
+	{
+		scroll_out = max_neg;
+	}
+
+	*scroll_y_out = scroll_out;
+	return true;
+}
+
+bool document_remap_sidebar_scroll_y_for_viewport_change(const Document *doc, float scroll_y_in, float sb_inner, float viewport_h_old,
+                                                           float viewport_h_new, float *scroll_y_out)
+{
+	return document_remap_sidebar_scroll_y_unified(doc, scroll_y_in, sb_inner, viewport_h_old, sb_inner, viewport_h_new, scroll_y_out);
+}
+
+static float document_total_content_height(const Document *doc, float inner_w, float viewport_h, bool fit_height_mode)
+{
+	size_t n;
+	float  total_h;
+
+	if (doc == NULL || doc->session == NULL || doc->page_layout_w == NULL)
+	{
+		return 0.0f;
+	}
+	n = doc->session->total_pages;
+	if (n == 0)
+	{
+		return 0.0f;
+	}
+	total_h = NICETY_DOC_CONTENT_PAD;
+	for (size_t i = 0; i < n; i++)
+	{
+		total_h += content_row_height(doc, i, inner_w, viewport_h, fit_height_mode);
+		if (i + 1 < n)
+		{
+			total_h += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+		}
+	}
+	total_h += NICETY_DOC_CONTENT_PAD;
+	return total_h;
+}
+
+static float document_total_sidebar_height(const Document *doc, float sb_inner)
+{
+	size_t n;
+	float  total_h;
+
+	if (doc == NULL || doc->session == NULL || doc->page_layout_w == NULL)
+	{
+		return 0.0f;
+	}
+	n = doc->session->total_pages;
+	if (n == 0)
+	{
+		return 0.0f;
+	}
+	total_h = NICETY_DOC_SIDEBAR_PAD;
+	for (size_t i = 0; i < n; i++)
+	{
+		total_h += document_sidebar_row_height(doc, i, sb_inner);
+		if (i + 1 < n)
+		{
+			total_h += NICETY_DOC_SIDEBAR_INTER_GAP;
+		}
+	}
+	total_h += NICETY_DOC_SIDEBAR_PAD;
+	return total_h;
+}
+
+bool document_sidebar_scroll_y_from_content_scroll_y(const Document *doc, float content_scroll_y, float content_viewport_w,
+                                                     float content_viewport_h, bool fit_height_mode, float sb_inner, float lane_viewport_h,
+                                                     float *sidebar_scroll_y_out)
+{
+	float inner_w;
+	float total_main;
+	float total_side;
+	float scroll_main;
+	float scroll_side;
+	float ratio;
+	float out_y;
+	float max_neg;
+
+	if (sidebar_scroll_y_out == NULL || doc == NULL || doc->session == NULL || doc->page_layout_w == NULL || doc->session->total_pages == 0)
+	{
+		return false;
+	}
+
+	inner_w     = inner_w_from_viewport_w(content_viewport_w);
+	total_main  = document_total_content_height(doc, inner_w, content_viewport_h, fit_height_mode);
+	total_side  = document_total_sidebar_height(doc, sb_inner);
+	scroll_main = 0.0f;
+	if (lane_viewport_h > 1.0f && total_main > lane_viewport_h)
+	{
+		scroll_main = total_main - lane_viewport_h;
+	}
+	scroll_side = 0.0f;
+	if (lane_viewport_h > 1.0f && total_side > lane_viewport_h)
+	{
+		scroll_side = total_side - lane_viewport_h;
+	}
+
+	if (scroll_main <= 1e-6f)
+	{
+		ratio = 0.0f;
+	}
+	else
+	{
+		ratio = (-content_scroll_y) / scroll_main;
+		if (ratio < 0.0f)
+		{
+			ratio = 0.0f;
+		}
+		else if (ratio > 1.0f)
+		{
+			ratio = 1.0f;
+		}
+	}
+
+	out_y = -ratio * scroll_side;
+
+	max_neg = 0.0f;
+	if (lane_viewport_h > 1.0f && total_side > lane_viewport_h)
+	{
+		max_neg = -(total_side - lane_viewport_h);
+	}
+	if (out_y > 0.0f)
+	{
+		out_y = 0.0f;
+	}
+	if (out_y < max_neg)
+	{
+		out_y = max_neg;
+	}
+
+	*sidebar_scroll_y_out = out_y;
+	return true;
+}
+
+>>>>>>> sidebar
 static float document_sidebar_row_height(const Document *doc, size_t i, float sb_inner)
 {
 	float layout_aspect = doc->page_layout_w[i] / doc->page_layout_h[i];
@@ -641,7 +992,10 @@ static void pages_destroy_textures(Page *pages, size_t count)
 		{
 			SDL_DestroyTexture(pages[i].thumb_texture);
 		}
-		SDL_DestroyTexture(pages[i].page_texture);
+		if (pages[i].page_texture != NULL)
+		{
+			SDL_DestroyTexture(pages[i].page_texture);
+		}
 	}
 }
 
@@ -658,8 +1012,9 @@ static void release_page_window(Document *doc, Page *pages, size_t texture_count
 	}
 }
 
-int document_load_page_window(DocumentContext *session, Application *app, size_t center, size_t radius, const char *file_path,
-                              Document *doc, NicetyRenderMode content_mode, bool fill_width_mode, float content_inner_width)
+int document_load_page_window(DocumentContext *session, Application *app, size_t center_main, size_t center_sidebar, size_t radius_main,
+                              size_t radius_sidebar, const char *file_path, Document *doc, NicetyRenderMode content_mode,
+                              bool fill_width_mode, float content_inner_width)
 {
 	if (session == NULL || app == NULL || doc == NULL || file_path == NULL)
 	{
@@ -670,25 +1025,27 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 
 	if (session->total_pages == 0)
 	{
-		doc->session         = session;
-		doc->file_path       = file_path;
-		doc->number_of_pages = 0;
-		doc->pages           = NULL;
-		doc->window_center   = 0;
+		doc->session                 = session;
+		doc->file_path               = file_path;
+		doc->number_of_pages         = 0;
+		doc->pages                   = NULL;
+		doc->window_center           = 0;
+		doc->window_sidebar_center   = 0;
 		return 0;
 	}
 
-	if (center >= session->total_pages)
+	if (center_main >= session->total_pages)
 	{
-		center = session->total_pages - 1;
+		center_main = session->total_pages - 1;
+	}
+	if (center_sidebar >= session->total_pages)
+	{
+		center_sidebar = session->total_pages - 1;
 	}
 
-	size_t from = center > radius ? center - radius : 0;
-	size_t till = center + radius;
-	if (till >= session->total_pages)
-	{
-		till = session->total_pages - 1;
-	}
+	size_t from;
+	size_t till;
+	document_page_window_union_range_dual(center_main, center_sidebar, radius_main, radius_sidebar, session->total_pages, &from, &till);
 
 	if (from > till)
 	{
@@ -712,92 +1069,157 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 
 	fz_page   *page = NULL;
 	fz_pixmap *pix  = NULL;
+	fz_pixmap *tpix = NULL;
 
 	for (size_t k = 0; k < count; k++)
 	{
-		size_t i = from + k;
-		page     = fz_load_page(session->ctx, session->doc, (int) i);
-		pix      = fz_new_pixmap_from_page(session->ctx, page,
-		                                   document_content_page_ctm(content_mode, fill_width_mode, content_inner_width, doc->page_layout_w[i], app),
-		                                   fz_device_rgb(session->ctx), 0);
-
-		u32    format;
-		Bitmap page_bitmap;
-
-		if (pix->n == 3)
-		{
-			format = COLOR_FORMAT_RGB;
-		}
-		else if (pix->n == 4)
-		{
-			format = COLOR_FORMAT_RGBA;
-		}
-		else
-		{
-			fprintf(stderr, "Unsupported pixel format\n");
-			fz_drop_pixmap(session->ctx, pix);
-			fz_drop_page(session->ctx, page);
-			release_page_window(doc, pages, k);
-			return 1;
-		}
-
-		page_bitmap.width         = pix->w;
-		page_bitmap.height        = pix->h;
-		page_bitmap.format        = format;
-		page_bitmap.pixel_data    = pix->samples;
-		page_bitmap.rows_per_byte = pix->stride;
-
-		pages[k].index       = i;
-		pages[k].page_bitmap = page_bitmap;
-		page_init(&pages[k], app);
-		pages[k].page_bitmap.pixel_data = NULL;
+		size_t i       = from + k;
+		bool   in_main = document_page_index_in_main_band(i, center_main, radius_main);
 
 		pages[k].thumb_texture = NULL;
 		memset(&pages[k].thumb_bitmap, 0, sizeof pages[k].thumb_bitmap);
-		if (pix->w > 0)
+
+		if (in_main)
 		{
-			float      tw   = document_thumb_max_edge_px(NICETY_RENDER_LOW);
-			float      th   = tw * (float) pix->h / (float) pix->w;
-			fz_pixmap *tpix = fz_scale_pixmap(session->ctx, pix, 0.0f, 0.0f, tw, th, NULL);
+			page = fz_load_page(session->ctx, session->doc, (int) i);
+			pix  = fz_new_pixmap_from_page(session->ctx, page,
+			                               document_content_page_ctm(content_mode, fill_width_mode, content_inner_width, doc->page_layout_w[i], app),
+			                               fz_device_rgb(session->ctx), 0);
 
-			if (tpix != NULL)
+			u32    format;
+			Bitmap page_bitmap;
+
+			if (pix->n == 3)
 			{
-				if (tpix->n == 3 || tpix->n == 4)
-				{
-					Bitmap thumb_bm;
-					u32    tf = tpix->n == 3 ? COLOR_FORMAT_RGB : COLOR_FORMAT_RGBA;
+				format = COLOR_FORMAT_RGB;
+			}
+			else if (pix->n == 4)
+			{
+				format = COLOR_FORMAT_RGBA;
+			}
+			else
+			{
+				fprintf(stderr, "Unsupported pixel format\n");
+				fz_drop_pixmap(session->ctx, pix);
+				fz_drop_page(session->ctx, page);
+				release_page_window(doc, pages, k);
+				return 1;
+			}
 
-					thumb_bm.width         = tpix->w;
-					thumb_bm.height        = tpix->h;
-					thumb_bm.format        = tf;
-					thumb_bm.pixel_data    = tpix->samples;
-					thumb_bm.rows_per_byte = tpix->stride;
-					pages[k].thumb_bitmap  = thumb_bm;
-					page_init_thumb(&pages[k], app);
-					pages[k].thumb_bitmap.pixel_data = NULL;
-					fz_drop_pixmap(session->ctx, tpix);
-				}
-				else
+			page_bitmap.width         = pix->w;
+			page_bitmap.height        = pix->h;
+			page_bitmap.format        = format;
+			page_bitmap.pixel_data    = pix->samples;
+			page_bitmap.rows_per_byte = pix->stride;
+
+			pages[k].index       = i;
+			pages[k].page_bitmap = page_bitmap;
+			page_init(&pages[k], app);
+			pages[k].page_bitmap.pixel_data = NULL;
+
+			if (pix->w > 0)
+			{
+				float tw = document_thumb_max_edge_px(NICETY_RENDER_LOW);
+				float th = tw * (float) pix->h / (float) pix->w;
+				tpix     = fz_scale_pixmap(session->ctx, pix, 0.0f, 0.0f, tw, th, NULL);
+
+				if (tpix != NULL)
 				{
-					fprintf(stderr, "Unsupported thumbnail pixel format\n");
-					fz_drop_pixmap(session->ctx, tpix);
+					if (tpix->n == 3 || tpix->n == 4)
+					{
+						Bitmap thumb_bm;
+						u32    tf = tpix->n == 3 ? COLOR_FORMAT_RGB : COLOR_FORMAT_RGBA;
+
+						thumb_bm.width         = tpix->w;
+						thumb_bm.height        = tpix->h;
+						thumb_bm.format        = tf;
+						thumb_bm.pixel_data    = tpix->samples;
+						thumb_bm.rows_per_byte = tpix->stride;
+						pages[k].thumb_bitmap  = thumb_bm;
+						page_init_thumb(&pages[k], app);
+						pages[k].thumb_bitmap.pixel_data = NULL;
+						fz_drop_pixmap(session->ctx, tpix);
+						tpix = NULL;
+					}
+					else
+					{
+						fprintf(stderr, "Unsupported thumbnail pixel format\n");
+						fz_drop_pixmap(session->ctx, tpix);
+						tpix = NULL;
+					}
 				}
 			}
-		}
 
-		fz_drop_pixmap(session->ctx, pix);
-		fz_drop_page(session->ctx, page);
-		pix  = NULL;
-		page = NULL;
+			fz_drop_pixmap(session->ctx, pix);
+			fz_drop_page(session->ctx, page);
+			pix  = NULL;
+			page = NULL;
+		}
+		else
+		{
+			float pd = document_app_pixel_density(app);
+
+			pages[k].index = i;
+			memset(&pages[k].page_bitmap, 0, sizeof pages[k].page_bitmap);
+			pages[k].page_texture = NULL;
+
+			page = fz_load_page(session->ctx, session->doc, (int) i);
+			pix  = fz_new_pixmap_from_page(session->ctx, page, document_thumb_only_page_ctm(doc->page_layout_w[i], pd),
+			                               fz_device_rgb(session->ctx), 0);
+			if (pix == NULL)
+			{
+				fz_drop_page(session->ctx, page);
+				release_page_window(doc, pages, k);
+				return 1;
+			}
+
+			if (pix->w > 0)
+			{
+				float tw = document_thumb_max_edge_px(NICETY_RENDER_LOW);
+				float th = tw * (float) pix->h / (float) pix->w;
+				tpix     = fz_scale_pixmap(session->ctx, pix, 0.0f, 0.0f, tw, th, NULL);
+				if (tpix != NULL)
+				{
+					if (tpix->n == 3 || tpix->n == 4)
+					{
+						Bitmap thumb_bm;
+						u32    tf = tpix->n == 3 ? COLOR_FORMAT_RGB : COLOR_FORMAT_RGBA;
+
+						thumb_bm.width         = tpix->w;
+						thumb_bm.height        = tpix->h;
+						thumb_bm.format        = tf;
+						thumb_bm.pixel_data    = tpix->samples;
+						thumb_bm.rows_per_byte = tpix->stride;
+						pages[k].thumb_bitmap  = thumb_bm;
+						page_init_thumb(&pages[k], app);
+						pages[k].thumb_bitmap.pixel_data = NULL;
+						fz_drop_pixmap(session->ctx, tpix);
+						tpix = NULL;
+					}
+					else
+					{
+						fprintf(stderr, "Unsupported thumbnail pixel format\n");
+						fz_drop_pixmap(session->ctx, tpix);
+						tpix = NULL;
+					}
+				}
+			}
+
+			fz_drop_pixmap(session->ctx, pix);
+			fz_drop_page(session->ctx, page);
+			pix  = NULL;
+			page = NULL;
+		}
 	}
 
 	doc->session                = session;
 	doc->pages                  = pages;
 	doc->number_of_pages        = count;
 	doc->file_path              = file_path;
-	doc->window_center          = center;
-	doc->raster_content_inner_w = content_inner_width;
-	doc->raster_fill_width_mode = fill_width_mode ? 1 : 0;
+	doc->window_center            = center_main;
+	doc->window_sidebar_center    = center_sidebar;
+	doc->raster_content_inner_w   = content_inner_width;
+	doc->raster_fill_width_mode   = fill_width_mode ? 1 : 0;
 	return 0;
 }
 
@@ -813,8 +1235,14 @@ void nicety_page_window_cpu_result_free(NicetyPageWindowCpuResult *r)
 	{
 		for (i = 0; i < r->count; i++)
 		{
-			free(r->slots[i].page.samples);
-			free(r->slots[i].thumb.samples);
+			if (r->slots[i].page.samples != NULL)
+			{
+				free(r->slots[i].page.samples);
+			}
+			if (r->slots[i].thumb.samples != NULL)
+			{
+				free(r->slots[i].thumb.samples);
+			}
 		}
 		free(r->slots);
 	}
@@ -850,9 +1278,10 @@ static void nicety_cpu_bitmap_clear(NicetyCpuBitmap *b)
 	b->format                        = COLOR_FORMAT_RGB;
 }
 
-int document_raster_page_window_to_cpu(const char *file_path, const float *page_layout_w, size_t total_pages, size_t center,
-                                       size_t radius, NicetyRenderMode content_mode, bool fill_width_mode, float content_inner_width,
-                                       float pixel_density, u64 doc_token, u64 request_seq, NicetyPageWindowCpuResult **out)
+int document_raster_page_window_to_cpu(const char *file_path, const float *page_layout_w, size_t total_pages, size_t center_main,
+                                       size_t center_sidebar, size_t radius_main, size_t radius_sidebar, NicetyRenderMode content_mode,
+                                       bool fill_width_mode, float content_inner_width, float pixel_density, u64 doc_token,
+                                       u64 request_seq, NicetyPageWindowCpuResult **out)
 {
 	fz_context                *ctx    = NULL;
 	fz_document               *doc    = NULL;
@@ -879,6 +1308,7 @@ int document_raster_page_window_to_cpu(const char *file_path, const float *page_
 		result->doc_token              = doc_token;
 		result->request_seq            = request_seq;
 		result->center                 = 0;
+		result->center_sidebar         = 0;
 		result->from_index             = 0;
 		result->count                  = 0;
 		result->raster_content_inner_w = content_inner_width;
@@ -888,16 +1318,15 @@ int document_raster_page_window_to_cpu(const char *file_path, const float *page_
 		return 0;
 	}
 
-	if (center >= total_pages)
+	if (center_main >= total_pages)
 	{
-		center = total_pages - 1;
+		center_main = total_pages - 1;
 	}
-	from = center > radius ? center - radius : 0;
-	till = center + radius;
-	if (till >= total_pages)
+	if (center_sidebar >= total_pages)
 	{
-		till = total_pages - 1;
+		center_sidebar = total_pages - 1;
 	}
+	document_page_window_union_range_dual(center_main, center_sidebar, radius_main, radius_sidebar, total_pages, &from, &till);
 	if (from > till)
 	{
 		return 1;
@@ -915,7 +1344,8 @@ int document_raster_page_window_to_cpu(const char *file_path, const float *page_
 	result->slots                  = slots;
 	result->doc_token              = doc_token;
 	result->request_seq            = request_seq;
-	result->center                 = center;
+	result->center                 = center_main;
+	result->center_sidebar         = center_sidebar;
 	result->from_index             = from;
 	result->count                  = count;
 	result->raster_content_inner_w = content_inner_width;
@@ -949,85 +1379,155 @@ int document_raster_page_window_to_cpu(const char *file_path, const float *page_
 		fz_page   *page = NULL;
 		fz_pixmap *pix  = NULL;
 		fz_pixmap *tpix = NULL;
+		bool       in_main;
 
-		i = from + k;
+		i       = from + k;
+		in_main = document_page_index_in_main_band(i, center_main, radius_main);
+
 		nicety_cpu_bitmap_clear(&slots[k].page);
 		nicety_cpu_bitmap_clear(&slots[k].thumb);
 		slots[k].index = i;
 
-		fz_try(ctx)
+		if (in_main)
 		{
-			page = fz_load_page(ctx, doc, (int) i);
-			pix  = fz_new_pixmap_from_page(ctx, page,
-			                               document_content_page_ctm_density(content_mode, fill_width_mode, content_inner_width,
-			                                                                 page_layout_w[i], pixel_density),
-			                               fz_device_rgb(ctx), 0);
-		}
-		fz_catch(ctx)
-		{
-			page = NULL;
-			pix  = NULL;
-		}
-		if (page == NULL || pix == NULL)
-		{
-			if (page != NULL)
-			{
-				fz_drop_page(ctx, page);
-			}
-			if (pix != NULL)
-			{
-				fz_drop_pixmap(ctx, pix);
-			}
-			fz_drop_document(ctx, doc);
-			fz_drop_context(ctx);
-			nicety_page_window_cpu_result_free(result);
-			return 1;
-		}
-
-		if (nicety_copy_pixmap_to_cpu(pix, &slots[k].page) != 0)
-		{
-			fz_drop_pixmap(ctx, pix);
-			fz_drop_page(ctx, page);
-			fz_drop_document(ctx, doc);
-			fz_drop_context(ctx);
-			nicety_page_window_cpu_result_free(result);
-			return 1;
-		}
-
-		if (pix->w > 0)
-		{
-			float tw = document_thumb_max_edge_px(NICETY_RENDER_LOW);
-			float th = tw * (float) pix->h / (float) pix->w;
 			fz_try(ctx)
 			{
-				tpix = fz_scale_pixmap(ctx, pix, 0.0f, 0.0f, tw, th, NULL);
+				page = fz_load_page(ctx, doc, (int) i);
+				pix  = fz_new_pixmap_from_page(ctx, page,
+				                               document_content_page_ctm_density(content_mode, fill_width_mode, content_inner_width,
+				                                                                 page_layout_w[i], pixel_density),
+				                               fz_device_rgb(ctx), 0);
 			}
 			fz_catch(ctx)
 			{
-				tpix = NULL;
+				page = NULL;
+				pix  = NULL;
 			}
-			if (tpix != NULL)
+			if (page == NULL || pix == NULL)
 			{
-				if (tpix->n == 3 || tpix->n == 4)
+				if (page != NULL)
 				{
-					if (nicety_copy_pixmap_to_cpu(tpix, &slots[k].thumb) != 0)
-					{
-						fz_drop_pixmap(ctx, tpix);
-						fz_drop_pixmap(ctx, pix);
-						fz_drop_page(ctx, page);
-						fz_drop_document(ctx, doc);
-						fz_drop_context(ctx);
-						nicety_page_window_cpu_result_free(result);
-						return 1;
-					}
+					fz_drop_page(ctx, page);
 				}
-				fz_drop_pixmap(ctx, tpix);
-				tpix = NULL;
+				if (pix != NULL)
+				{
+					fz_drop_pixmap(ctx, pix);
+				}
+				fz_drop_document(ctx, doc);
+				fz_drop_context(ctx);
+				nicety_page_window_cpu_result_free(result);
+				return 1;
 			}
-		}
 
-		fz_drop_pixmap(ctx, pix);
-		fz_drop_page(ctx, page);
+			if (nicety_copy_pixmap_to_cpu(pix, &slots[k].page) != 0)
+			{
+				fz_drop_pixmap(ctx, pix);
+				fz_drop_page(ctx, page);
+				fz_drop_document(ctx, doc);
+				fz_drop_context(ctx);
+				nicety_page_window_cpu_result_free(result);
+				return 1;
+			}
+
+			if (pix->w > 0)
+			{
+				float tw = document_thumb_max_edge_px(NICETY_RENDER_LOW);
+				float th = tw * (float) pix->h / (float) pix->w;
+				fz_try(ctx)
+				{
+					tpix = fz_scale_pixmap(ctx, pix, 0.0f, 0.0f, tw, th, NULL);
+				}
+				fz_catch(ctx)
+				{
+					tpix = NULL;
+				}
+				if (tpix != NULL)
+				{
+					if (tpix->n == 3 || tpix->n == 4)
+					{
+						if (nicety_copy_pixmap_to_cpu(tpix, &slots[k].thumb) != 0)
+						{
+							fz_drop_pixmap(ctx, tpix);
+							fz_drop_pixmap(ctx, pix);
+							fz_drop_page(ctx, page);
+							fz_drop_document(ctx, doc);
+							fz_drop_context(ctx);
+							nicety_page_window_cpu_result_free(result);
+							return 1;
+						}
+					}
+					fz_drop_pixmap(ctx, tpix);
+					tpix = NULL;
+				}
+			}
+
+			fz_drop_pixmap(ctx, pix);
+			fz_drop_page(ctx, page);
+		}
+		else
+		{
+			fz_try(ctx)
+			{
+				page = fz_load_page(ctx, doc, (int) i);
+				pix  = fz_new_pixmap_from_page(ctx, page, document_thumb_only_page_ctm(page_layout_w[i], pixel_density),
+				                               fz_device_rgb(ctx), 0);
+			}
+			fz_catch(ctx)
+			{
+				page = NULL;
+				pix  = NULL;
+			}
+			if (page == NULL || pix == NULL)
+			{
+				if (page != NULL)
+				{
+					fz_drop_page(ctx, page);
+				}
+				if (pix != NULL)
+				{
+					fz_drop_pixmap(ctx, pix);
+				}
+				fz_drop_document(ctx, doc);
+				fz_drop_context(ctx);
+				nicety_page_window_cpu_result_free(result);
+				return 1;
+			}
+
+			if (pix->w > 0)
+			{
+				float tw = document_thumb_max_edge_px(NICETY_RENDER_LOW);
+				float th = tw * (float) pix->h / (float) pix->w;
+				fz_try(ctx)
+				{
+					tpix = fz_scale_pixmap(ctx, pix, 0.0f, 0.0f, tw, th, NULL);
+				}
+				fz_catch(ctx)
+				{
+					tpix = NULL;
+				}
+				if (tpix != NULL)
+				{
+					if (tpix->n == 3 || tpix->n == 4)
+					{
+						if (nicety_copy_pixmap_to_cpu(tpix, &slots[k].thumb) != 0)
+						{
+							fz_drop_pixmap(ctx, tpix);
+							fz_drop_pixmap(ctx, pix);
+							fz_drop_page(ctx, page);
+							fz_drop_document(ctx, doc);
+							fz_drop_context(ctx);
+							nicety_page_window_cpu_result_free(result);
+							return 1;
+						}
+					}
+					fz_drop_pixmap(ctx, tpix);
+					tpix = NULL;
+				}
+			}
+
+			fz_drop_pixmap(ctx, pix);
+			fz_drop_page(ctx, page);
+		}
 	}
 
 	fz_drop_document(ctx, doc);
@@ -1072,11 +1572,12 @@ int document_commit_page_window_from_cpu(Application *app, DocumentContext *sess
 			doc->pages           = NULL;
 			doc->number_of_pages = 0;
 		}
-		doc->session                = session;
-		doc->file_path              = file_path;
-		doc->window_center          = cpu->center;
-		doc->raster_content_inner_w = cpu->raster_content_inner_w;
-		doc->raster_fill_width_mode = cpu->raster_fill_width_mode;
+		doc->session                  = session;
+		doc->file_path                = file_path;
+		doc->window_center            = cpu->center;
+		doc->window_sidebar_center    = cpu->center_sidebar;
+		doc->raster_content_inner_w   = cpu->raster_content_inner_w;
+		doc->raster_fill_width_mode   = cpu->raster_fill_width_mode;
 		nicety_page_window_cpu_result_free(cpu);
 		return 0;
 	}
@@ -1108,21 +1609,27 @@ int document_commit_page_window_from_cpu(Application *app, DocumentContext *sess
 		NicetyCpuPageSlot *slot = &cpu->slots[k];
 		Bitmap             page_bm;
 
-		page_bm.width         = slot->page.width;
-		page_bm.height        = slot->page.height;
-		page_bm.format        = slot->page.format;
-		page_bm.rows_per_byte = slot->page.stride;
-		page_bm.pixel_data    = slot->page.samples;
-
 		pages[k].index         = slot->index;
 		pages[k].thumb_texture = NULL;
 		memset(&pages[k].thumb_bitmap, 0, sizeof pages[k].thumb_bitmap);
-		pages[k].page_bitmap = page_bm;
+		memset(&pages[k].page_bitmap, 0, sizeof pages[k].page_bitmap);
+		pages[k].page_texture = NULL;
 
-		page_upload_texture(app, &page_bm, &pages[k].page_texture);
-		free(slot->page.samples);
-		slot->page.samples              = NULL;
-		pages[k].page_bitmap.pixel_data = NULL;
+		if (slot->page.width > 0 && slot->page.samples != NULL)
+		{
+			page_bm.width         = slot->page.width;
+			page_bm.height        = slot->page.height;
+			page_bm.format        = slot->page.format;
+			page_bm.rows_per_byte = slot->page.stride;
+			page_bm.pixel_data    = slot->page.samples;
+
+			pages[k].page_bitmap = page_bm;
+
+			page_upload_texture(app, &page_bm, &pages[k].page_texture);
+			free(slot->page.samples);
+			slot->page.samples              = NULL;
+			pages[k].page_bitmap.pixel_data = NULL;
+		}
 
 		if (slot->thumb.width > 0 && slot->thumb.samples != NULL)
 		{
@@ -1140,13 +1647,14 @@ int document_commit_page_window_from_cpu(Application *app, DocumentContext *sess
 		}
 	}
 
-	doc->session                = session;
-	doc->pages                  = pages;
-	doc->number_of_pages        = cpu->count;
-	doc->file_path              = file_path;
-	doc->window_center          = cpu->center;
-	doc->raster_content_inner_w = cpu->raster_content_inner_w;
-	doc->raster_fill_width_mode = cpu->raster_fill_width_mode;
+	doc->session                  = session;
+	doc->pages                    = pages;
+	doc->number_of_pages          = cpu->count;
+	doc->file_path                = file_path;
+	doc->window_center            = cpu->center;
+	doc->window_sidebar_center    = cpu->center_sidebar;
+	doc->raster_content_inner_w   = cpu->raster_content_inner_w;
+	doc->raster_fill_width_mode   = cpu->raster_fill_width_mode;
 
 	free(cpu->slots);
 	free(cpu);

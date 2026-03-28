@@ -89,7 +89,8 @@ static void page_loader_shutdown(App *self)
 	self->page_loader_cond = NULL;
 }
 
-static void page_loader_enqueue(App *self, Application *core, Document *doc, size_t center, bool fill, float inner_w)
+static void page_loader_enqueue(App *self, Application *core, Document *doc, size_t center_main, size_t center_sidebar, bool fill,
+                                float inner_w)
 {
 	size_t n;
 
@@ -133,9 +134,11 @@ static void page_loader_enqueue(App *self, Application *core, Document *doc, siz
 		memcpy(self->page_loader_layout_h, doc->page_layout_h, n * sizeof(float));
 	}
 
-	self->page_loader_total_pages   = n;
-	self->page_loader_center        = center;
-	self->page_loader_radius        = NICETY_PAGE_WINDOW_RADIUS;
+	self->page_loader_total_pages        = n;
+	self->page_loader_center             = center_main;
+	self->page_loader_center_sidebar     = center_sidebar;
+	self->page_loader_radius_main        = NICETY_PAGE_WINDOW_RADIUS_MAIN;
+	self->page_loader_radius_sidebar     = NICETY_PAGE_WINDOW_RADIUS_SIDEBAR;
 	self->page_loader_fill          = fill;
 	self->page_loader_inner_w       = inner_w;
 	self->page_loader_pixel_density = document_app_pixel_density(core);
@@ -145,10 +148,11 @@ static void page_loader_enqueue(App *self, Application *core, Document *doc, siz
 	SDL_SignalCondition(self->page_loader_cond);
 	SDL_UnlockMutex(self->page_loader_mutex);
 
-	/* So next frame we do not enqueue again until scroll/view context changes (window_center still tracks request). */
-	doc->window_center          = center;
-	doc->raster_content_inner_w = inner_w;
-	doc->raster_fill_width_mode = fill ? 1 : 0;
+	/* So next frame we do not enqueue again until scroll/view context changes (centers track last requested window). */
+	doc->window_center            = center_main;
+	doc->window_sidebar_center    = center_sidebar;
+	doc->raster_content_inner_w   = inner_w;
+	doc->raster_fill_width_mode   = fill ? 1 : 0;
 }
 
 static void page_loader_try_commit(App *self, Application *core)
@@ -190,8 +194,10 @@ static int SDLCALL page_loader_thread_fn(void *data)
 		float                     *lh;
 		u64                        my_seq;
 		u64                        my_doc_gen;
-		size_t                     center;
-		size_t                     radius;
+		size_t                     center_main;
+		size_t                     center_sidebar;
+		size_t                     radius_main;
+		size_t                     radius_sidebar;
 		size_t                     total_pages;
 		bool                       fill;
 		float                      inner_w;
@@ -213,8 +219,10 @@ static int SDLCALL page_loader_thread_fn(void *data)
 		path        = self->page_loader_path != NULL ? SDL_strdup(self->page_loader_path) : NULL;
 		my_seq      = self->page_loader_request_seq;
 		my_doc_gen  = self->page_loader_pending_doc_token;
-		center      = self->page_loader_center;
-		radius      = self->page_loader_radius;
+		center_main      = self->page_loader_center;
+		center_sidebar   = self->page_loader_center_sidebar;
+		radius_main    = self->page_loader_radius_main;
+		radius_sidebar = self->page_loader_radius_sidebar;
 		total_pages = self->page_loader_total_pages;
 		fill        = self->page_loader_fill;
 		inner_w     = self->page_loader_inner_w;
@@ -242,8 +250,8 @@ static int SDLCALL page_loader_thread_fn(void *data)
 			continue;
 		}
 
-		err = document_raster_page_window_to_cpu(path, lw, total_pages, center, radius, NICETY_RENDER_NORMAL, fill, inner_w, density,
-		                                         my_doc_gen, my_seq, &result);
+		err = document_raster_page_window_to_cpu(path, lw, total_pages, center_main, center_sidebar, radius_main, radius_sidebar,
+		                                         NICETY_RENDER_NORMAL, fill, inner_w, density, my_doc_gen, my_seq, &result);
 		free(lw);
 		free(lh);
 		SDL_free(path);
@@ -303,6 +311,8 @@ static bool path_has_pdf_extension(const char *path)
 
 static void app_close_document(App *self)
 {
+	self->prev_content_scroll_y  = 0.0f;
+	self->sidebar_viewport_valid = false;
 	if (self->document != NULL)
 	{
 		self->doc_load_token++;
@@ -378,7 +388,8 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 			self->sidebar_visible = true;
 		}
 		bool fill = (self->view_mode == VIEW_MODE_FILL);
-		if (document_load_page_window(ctx, core, 0, NICETY_PAGE_WINDOW_RADIUS, file_path_owned, doc, NICETY_RENDER_NORMAL, fill, inner_w) != 0)
+		if (document_load_page_window(ctx, core, 0, 0, NICETY_PAGE_WINDOW_RADIUS_MAIN, NICETY_PAGE_WINDOW_RADIUS_SIDEBAR, file_path_owned, doc,
+		                            NICETY_RENDER_NORMAL, fill, inner_w) != 0)
 		{
 			document_destroy(ctx, doc);
 			goto fail_ctx;
@@ -450,10 +461,19 @@ void app_init(App *self)
 	self->document               = NULL;
 	self->document_ctx           = NULL;
 	self->document_arena         = NULL;
+<<<<<<< HEAD
 	self->sidebar_scroll_valid   = false;
 	self->content_scroll_valid   = false;
 	self->content_viewport_valid = false;
 	self->sidebar_visible        = true;
+=======
+	self->sidebar_scroll_valid     = false;
+	self->content_scroll_valid     = false;
+	self->content_viewport_valid   = false;
+	self->sidebar_viewport_valid   = false;
+	self->prev_content_scroll_y    = 0.0f;
+	self->sidebar_visible          = true;
+>>>>>>> sidebar
 	page_loader_init(self);
 }
 
@@ -495,6 +515,13 @@ void app_on_update(App *self, Application *core)
 				bool   fit     = (self->view_mode == VIEW_MODE_FIT_HEIGHT);
 				size_t c       = document_page_at_scroll_y(self->document, self->content_scroll_offset.y, self->content_viewport_width,
 				                                           self->content_viewport_height, fit);
+				float  sb_inner = NICETY_DOC_SIDEBAR_OUTER_W - 2.0f * NICETY_DOC_SIDEBAR_PAD;
+				size_t c_side   = c;
+				if (self->sidebar_visible && self->sidebar_scroll_valid && self->sidebar_viewport_valid && self->document->page_layout_w != NULL)
+				{
+					c_side = document_page_at_sidebar_scroll_y(self->document, self->sidebar_scroll_offset.y, sb_inner,
+					                                           self->sidebar_viewport_height);
+				}
 				bool   fill    = (self->view_mode == VIEW_MODE_FILL);
 				float  inner_w = self->content_viewport_width - 2.0f * NICETY_DOC_CONTENT_PAD;
 				if (inner_w < 1.0f)
@@ -502,17 +529,18 @@ void app_on_update(App *self, Application *core)
 					inner_w = 1.0f;
 				}
 
-				bool center_moved = (c != self->document->window_center);
-				bool ctx_changed  = (fill != (bool) self->document->raster_fill_width_mode) || (fabsf(inner_w - self->document->raster_content_inner_w) > 3.0f);
+				bool lane_needs_load = (c != self->document->window_center) || (c_side != self->document->window_sidebar_center);
+				bool ctx_changed     = (fill != (bool) self->document->raster_fill_width_mode) || (fabsf(inner_w - self->document->raster_content_inner_w) > 3.0f);
 
-				if (center_moved || view_mode_changed || ctx_changed)
+				if (lane_needs_load || view_mode_changed || ctx_changed)
 				{
 					if (self->page_loader_thread != NULL)
 					{
-						page_loader_enqueue(self, core, self->document, c, fill, inner_w);
+						page_loader_enqueue(self, core, self->document, c, c_side, fill, inner_w);
 					}
-					else if (document_load_page_window(self->document_ctx, core, c, NICETY_PAGE_WINDOW_RADIUS, self->document->file_path,
-					                                   self->document, NICETY_RENDER_NORMAL, fill, inner_w) != 0)
+					else if (document_load_page_window(self->document_ctx, core, c, c_side, NICETY_PAGE_WINDOW_RADIUS_MAIN,
+					                                   NICETY_PAGE_WINDOW_RADIUS_SIDEBAR, self->document->file_path, self->document,
+					                                   NICETY_RENDER_NORMAL, fill, inner_w) != 0)
 					{
 						fprintf(stderr, "document_load_page_window failed\n");
 					}

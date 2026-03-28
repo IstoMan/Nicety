@@ -75,6 +75,7 @@ typedef struct
 	Page            *pages;
 	size_t           number_of_pages;
 	size_t           window_center;
+	size_t           window_sidebar_center;
 	float           *page_layout_w;
 	float           *page_layout_h;
 	const char      *file_path;
@@ -87,7 +88,9 @@ typedef struct
 	b8    raster_fill_width_mode;
 } Document;
 
-#define NICETY_PAGE_WINDOW_RADIUS 2
+/* Main pane: full NORMAL raster within this radius of center. Sidebar: union extends to SIDEBAR radius; outer indices are thumb-only. */
+#define NICETY_PAGE_WINDOW_RADIUS_MAIN    2
+#define NICETY_PAGE_WINDOW_RADIUS_SIDEBAR 5
 
 /* Extra pixels above/below viewport when virtualizing scroll lists (Clay elements). */
 #define NICETY_UI_VIRTUAL_OVERSCAN_PX 400.0f
@@ -96,9 +99,9 @@ DocumentContext *document_context_init(mem_arena *document_arena, const char *fi
 void             document_context_destroy(DocumentContext *session);
 
 int document_measure_pages(DocumentContext *session, Document *doc);
-int document_load_page_window(DocumentContext *session, Application *app, size_t center, size_t radius,
-                              const char *file_path, Document *doc, NicetyRenderMode content_mode, bool fill_width_mode,
-                              float content_inner_width);
+int document_load_page_window(DocumentContext *session, Application *app, size_t center_main, size_t center_sidebar, size_t radius_main,
+                              size_t radius_sidebar, const char *file_path, Document *doc, NicetyRenderMode content_mode,
+                              bool fill_width_mode, float content_inner_width);
 
 /* Pixel density for fill-width raster (matches SDL_GetWindowPixelDensity); use 1 if unknown. */
 float document_app_pixel_density(const Application *app);
@@ -127,6 +130,7 @@ typedef struct NicetyPageWindowCpuResult
 	u64                doc_token;
 	u64                request_seq;
 	size_t             center;
+	size_t             center_sidebar;
 	size_t             from_index;
 	size_t             count;
 	float              raster_content_inner_w;
@@ -137,9 +141,10 @@ typedef struct NicetyPageWindowCpuResult
 void nicety_page_window_cpu_result_free(NicetyPageWindowCpuResult *r);
 
 /* Raster off the UI thread (own fz_context). Returns 0 and sets *out on success. */
-int document_raster_page_window_to_cpu(const char *file_path, const float *page_layout_w, size_t total_pages, size_t center,
-                                       size_t radius, NicetyRenderMode content_mode, bool fill_width_mode, float content_inner_width,
-                                       float pixel_density, u64 doc_token, u64 request_seq, NicetyPageWindowCpuResult **out);
+int document_raster_page_window_to_cpu(const char *file_path, const float *page_layout_w, size_t total_pages, size_t center_main,
+                                       size_t center_sidebar, size_t radius_main, size_t radius_sidebar, NicetyRenderMode content_mode,
+                                       bool fill_width_mode, float content_inner_width, float pixel_density, u64 doc_token,
+                                       u64 request_seq, NicetyPageWindowCpuResult **out);
 
 /*
  * Upload CPU buffers to textures and install into doc (main thread only).
@@ -161,6 +166,18 @@ bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_i
 bool document_remap_scroll_y_for_viewport_change(const Document *doc, float scroll_y_in, float viewport_w_old, float viewport_h_old,
                                                  float viewport_w_new, float viewport_h_new, bool fit_height_mode, float *scroll_y_out);
 
+<<<<<<< HEAD
+=======
+size_t document_page_at_sidebar_scroll_y(const Document *doc, float scroll_y, float sb_inner, float viewport_h);
+
+bool document_remap_sidebar_scroll_y_for_viewport_change(const Document *doc, float scroll_y_in, float sb_inner, float viewport_h_old,
+                                                           float viewport_h_new, float *scroll_y_out);
+
+bool document_sidebar_scroll_y_from_content_scroll_y(const Document *doc, float content_scroll_y, float content_viewport_w,
+                                                       float content_viewport_h, bool fit_height_mode, float sb_inner, float lane_viewport_h,
+                                                       float *sidebar_scroll_y_out);
+
+>>>>>>> sidebar
 Page *document_page_for_index(const Document *doc, size_t page_index);
 
 /*

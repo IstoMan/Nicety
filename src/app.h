@@ -25,6 +25,8 @@ typedef struct App
 	size_t                  sensitivity;
 	AppState                program_state;
 	ViewMode                view_mode;
+	nicety_arena           *document_arena;
+	DocumentContext        *document_ctx;
 	Document               *document;
 	Clay_RenderCommandArray ui_commands;
 	Clay_Vector2            sidebar_scroll_offset;

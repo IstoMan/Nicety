@@ -78,7 +78,7 @@ bool application_init(Application *core, WindowSpecs specs)
 		return false;
 	}
 
-	TTF_Font *font = TTF_OpenFont("resources/Inter-VariableFont_opsz,wght.ttf", 24);
+	TTF_Font *font = TTF_OpenFont("resources/interface.ttf", 24);
 	if (!font)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to load font: %s", SDL_GetError());

@@ -34,8 +34,6 @@ out/
 .cache/
 
 # IDEs
-.vscode/
-.idea/
 *.swp
 *.swo
 .clangd/
@@ -49,3 +47,6 @@ install_manifest.txt
 compile_commands.json
 Makefile
 _deps/
+
+# Resources
+resources/book.pdf

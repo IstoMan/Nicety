@@ -6,22 +6,88 @@
 #include <stdlib.h>
 #include <string.h>
 
+enum
+{
+	DOCUMENT_ARENA_BYTES = 65536
+};
+
+static void app_close_document(App *self)
+{
+	if (self->document != NULL)
+	{
+		document_destroy(self->document_ctx, self->document);
+		self->document = NULL;
+	}
+	if (self->document_ctx != NULL)
+	{
+		document_context_destroy(self->document_ctx);
+		self->document_ctx = NULL;
+	}
+	if (self->document_arena != NULL)
+	{
+		arena_destroy(self->document_arena);
+		self->document_arena = NULL;
+	}
+}
+
+static int app_open_pdf(App *self, Application *core, char *file_path_owned)
+{
+	nicety_arena *arena = arena_init(DOCUMENT_ARENA_BYTES);
+	if (arena == NULL)
+	{
+		SDL_free(file_path_owned);
+		return 1;
+	}
+
+	DocumentContext *ctx = document_context_init(arena, file_path_owned);
+	if (ctx == NULL)
+	{
+		SDL_free(file_path_owned);
+		arena_destroy(arena);
+		return 1;
+	}
+
+	Document *doc = malloc(sizeof(Document));
+	if (doc == NULL)
+	{
+		document_context_destroy(ctx);
+		arena_destroy(arena);
+		SDL_free(file_path_owned);
+		return 1;
+	}
+
+	size_t till = ctx->total_pages > 0 ? ctx->total_pages - 1 : 0;
+	int    err  = document_load_pages(ctx, core, 0, till, file_path_owned, doc);
+	if (err != 0)
+	{
+		free(doc);
+		document_context_destroy(ctx);
+		arena_destroy(arena);
+		SDL_free(file_path_owned);
+		return 1;
+	}
+
+	self->document_arena = arena;
+	self->document_ctx   = ctx;
+	self->document       = doc;
+	return 0;
+}
+
 void app_init(App *self)
 {
 	memset(self, 0, sizeof *self);
 	self->sensitivity          = 3;
 	self->program_state        = LOAD_FILE;
 	self->document             = NULL;
+	self->document_ctx         = NULL;
+	self->document_arena       = NULL;
 	self->sidebar_scroll_valid = false;
 	self->content_scroll_valid = false;
 }
 
 void app_destroy(App *self)
 {
-	if (self->document != NULL)
-	{
-		document_destroy(self->document);
-	}
+	app_close_document(self);
 }
 
 void app_on_render(App *self, void *renderer)
@@ -79,17 +145,11 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 				char       *input_path = tinyfd_openFileDialog("Select a PDF", "./resources/", 1, filter, "PDF File", false);
 				if (input_path)
 				{
-					if (self->document != NULL)
-					{
-						document_destroy(self->document);
-						self->document = NULL;
-					}
+					app_close_document(self);
 					char *input_path_copy = SDL_strdup(input_path);
-					int   err             = document_init(&self->document, core, input_path_copy);
-					if (err == 1 || self->document == NULL)
+					if (app_open_pdf(self, core, input_path_copy) != 0)
 					{
-						fprintf(stderr, "Couldn't Load file %s\n", SDL_GetError());
-						SDL_free(input_path_copy);
+						fprintf(stderr, "Couldn't load file\n");
 						exit(1);
 					}
 					self->program_state = FILE_VIEW;
@@ -106,17 +166,11 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 		break;
 		case SDL_EVENT_DROP_FILE:
 		{
-			if (self->document != NULL)
-			{
-				document_destroy(self->document);
-				self->document = NULL;
-			}
+			app_close_document(self);
 			char *file_path_copy = SDL_strdup(event.drop.data);
-			int   err            = document_init(&self->document, core, file_path_copy);
-			if (err == 1 || self->document == NULL)
+			if (app_open_pdf(self, core, file_path_copy) != 0)
 			{
-				fprintf(stderr, "Couldn't Load file %s\n", SDL_GetError());
-				SDL_free(file_path_copy);
+				fprintf(stderr, "Couldn't load file\n");
 				exit(1);
 			}
 			self->program_state = FILE_VIEW;

@@ -1,5 +1,7 @@
 #pragma once
 #include "utils.h"
+#include <mupdf/fitz.h>
+#include "arena.h"
 #include <stddef.h>
 
 typedef struct Application Application;
@@ -29,10 +31,24 @@ typedef struct
 
 typedef struct
 {
-	Page       *pages;
-	size_t      number_of_pages;
-	const char *file_path;
+	nicety_arena *document_arena;
+	fz_context   *ctx;
+	fz_document  *doc;
+	size_t        total_pages;
+} DocumentContext;
+
+typedef struct
+{
+	DocumentContext *session;
+	Page            *pages;
+	size_t           number_of_pages;
+	const char      *file_path;
 } Document;
 
-int  document_init(Document **document, Application *core, const char *file_path);
-void document_destroy(Document *document);
+DocumentContext *document_context_init(nicety_arena *document_arena, const char *file_path);
+void             document_context_destroy(DocumentContext *session);
+
+int document_load_pages(DocumentContext *session, Application *app, size_t from, size_t till, const char *file_path,
+                        Document *out);
+
+void document_destroy(DocumentContext *session, Document *document);

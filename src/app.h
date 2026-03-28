@@ -25,7 +25,7 @@ typedef struct App
 	size_t                  sensitivity;
 	AppState                program_state;
 	ViewMode                view_mode;
-	nicety_arena           *document_arena;
+	mem_arena              *document_arena;
 	DocumentContext        *document_ctx;
 	Document               *document;
 	Clay_RenderCommandArray ui_commands;
@@ -33,10 +33,13 @@ typedef struct App
 	Clay_Vector2            content_scroll_offset;
 	bool                    sidebar_scroll_valid;
 	bool                    content_scroll_valid;
+	float                   content_viewport_width;
+	float                   content_viewport_height;
+	bool                    content_viewport_valid;
 } App;
 
 void app_init(App *self);
-void app_on_update(App *self);
+void app_on_update(App *self, Application *core);
 void app_on_render(App *self, void *renderer);
 void app_on_event(App *self, Application *core, Event event, float deltaTime);
 void app_destroy(App *self);

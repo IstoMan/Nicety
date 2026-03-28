@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "clay_renderer_SDL3.h"
 #include "tinyfiledialogs.h"
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,22 @@ enum
 {
 	DOCUMENT_ARENA_BYTES = 65536
 };
+
+static bool path_has_pdf_extension(const char *path)
+{
+	size_t n;
+	if (path == NULL)
+	{
+		return false;
+	}
+	n = strlen(path);
+	if (n < 4)
+	{
+		return false;
+	}
+	path += n - 4;
+	return path[0] == '.' && (path[1] == 'p' || path[1] == 'P') && (path[2] == 'd' || path[2] == 'D') && (path[3] == 'f' || path[3] == 'F');
+}
 
 static void app_close_document(App *self)
 {
@@ -32,7 +49,7 @@ static void app_close_document(App *self)
 
 static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 {
-	nicety_arena *arena = arena_init(DOCUMENT_ARENA_BYTES);
+	mem_arena *arena = arena_init(DOCUMENT_ARENA_BYTES);
 	if (arena == NULL)
 	{
 		SDL_free(file_path_owned);
@@ -56,11 +73,22 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 		return 1;
 	}
 
-	size_t till = ctx->total_pages > 0 ? ctx->total_pages - 1 : 0;
-	int    err  = document_load_pages(ctx, core, 0, till, file_path_owned, doc);
-	if (err != 0)
+	memset(doc, 0, sizeof *doc);
+	doc->session = ctx;
+
+	if (document_measure_pages(ctx, doc) != 0)
 	{
 		free(doc);
+		document_context_destroy(ctx);
+		arena_destroy(arena);
+		SDL_free(file_path_owned);
+		return 1;
+	}
+
+	int err = document_load_page_window(ctx, core, 0, NICETY_PAGE_WINDOW_RADIUS, file_path_owned, doc);
+	if (err != 0)
+	{
+		document_destroy(ctx, doc);
 		document_context_destroy(ctx);
 		arena_destroy(arena);
 		SDL_free(file_path_owned);
@@ -83,6 +111,7 @@ void app_init(App *self)
 	self->document_arena       = NULL;
 	self->sidebar_scroll_valid = false;
 	self->content_scroll_valid = false;
+	self->content_viewport_valid = false;
 }
 
 void app_destroy(App *self)
@@ -101,7 +130,7 @@ void app_on_render(App *self, void *renderer)
 	SDL_Clay_RenderClayCommands(&clay_data, &self->ui_commands);
 }
 
-void app_on_update(App *self)
+void app_on_update(App *self, Application *core)
 {
 	switch (self->program_state)
 	{
@@ -112,6 +141,23 @@ void app_on_update(App *self)
 		break;
 		case FILE_VIEW:
 		{
+			if (self->document != NULL && self->document->session != NULL && self->document->session->total_pages > 0
+			    && self->content_scroll_valid && self->content_viewport_valid && self->content_viewport_width > 1.0f
+			    && core != NULL)
+			{
+				bool fit = (self->view_mode == VIEW_MODE_FIT_HEIGHT);
+				size_t c = document_page_at_scroll_y(self->document, self->content_scroll_offset.y, self->content_viewport_width,
+				                                       self->content_viewport_height, fit);
+				if (c != self->document->window_center)
+				{
+					if (document_load_page_window(self->document_ctx, core, c, NICETY_PAGE_WINDOW_RADIUS, self->document->file_path,
+					                              self->document)
+					    != 0)
+					{
+						fprintf(stderr, "document_load_page_window failed\n");
+					}
+				}
+			}
 			self->ui_commands = ui_document_view(*self->document, self);
 		}
 		break;
@@ -147,10 +193,22 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 				{
 					app_close_document(self);
 					char *input_path_copy = SDL_strdup(input_path);
+					if (input_path_copy == NULL)
+					{
+						fprintf(stderr, "Out of memory copying path\n");
+						break;
+					}
+					if (!path_has_pdf_extension(input_path_copy))
+					{
+						fprintf(stderr, "Please select a .pdf file\n");
+						SDL_free(input_path_copy);
+						break;
+					}
 					if (app_open_pdf(self, core, input_path_copy) != 0)
 					{
-						fprintf(stderr, "Couldn't load file\n");
-						exit(1);
+						fprintf(stderr, "Couldn't load PDF (MuPDF/SDL)\n");
+						self->program_state = LOAD_FILE;
+						break;
 					}
 					self->program_state = FILE_VIEW;
 				}
@@ -168,10 +226,22 @@ void app_on_event(App *self, Application *core, Event event, float deltaTime)
 		{
 			app_close_document(self);
 			char *file_path_copy = SDL_strdup(event.drop.data);
+			if (file_path_copy == NULL)
+			{
+				fprintf(stderr, "Out of memory copying path\n");
+				break;
+			}
+			if (!path_has_pdf_extension(file_path_copy))
+			{
+				fprintf(stderr, "Please drop a .pdf file\n");
+				SDL_free(file_path_copy);
+				break;
+			}
 			if (app_open_pdf(self, core, file_path_copy) != 0)
 			{
-				fprintf(stderr, "Couldn't load file\n");
-				exit(1);
+				fprintf(stderr, "Couldn't load PDF (MuPDF/SDL)\n");
+				self->program_state = LOAD_FILE;
+				break;
 			}
 			self->program_state = FILE_VIEW;
 		}

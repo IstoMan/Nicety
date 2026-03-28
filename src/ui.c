@@ -1,4 +1,11 @@
 #include "ui.h"
+#include "document.h"
+
+/*
+ * Scroll areas follow Clay’s pattern: clip + childOffset on the scroll parent, children laid out
+ * with TOP_TO_BOTTOM and childGap. See resources/Clay.md ("Scrolling Elements") and
+ * Clay_GetScrollContainerData (persist last frame’s offset so layout matches internal scroll state).
+ */
 
 static const int FONT_ID_0 = 0;
 
@@ -41,8 +48,25 @@ static void toggle_view_mode(Clay_ElementId elementId, Clay_PointerData pointerD
 	}
 }
 
+static float sidebar_inner_width(void)
+{
+	return NICETY_DOC_SIDEBAR_OUTER_W - 2.0f * NICETY_DOC_SIDEBAR_PAD;
+}
+
 Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 {
+	size_t i;
+	size_t total_pages;
+
+	if (doc.session == NULL)
+	{
+		total_pages = 0;
+	}
+	else
+	{
+		total_pages = doc.session->total_pages;
+	}
+
 	Clay_BeginLayout();
 
 	CLAY(CLAY_ID("Outer"), {
@@ -91,71 +115,103 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 		{
 			Clay_ScrollContainerData sidebarData   = Clay_GetScrollContainerData(CLAY_ID("Sidebar"));
 			Clay_Vector2             sidebarOffset = (sidebarData.found && sidebarData.scrollPosition) ? *sidebarData.scrollPosition : (app->sidebar_scroll_valid ? app->sidebar_scroll_offset : (Clay_Vector2) {0, 0});
+			float                    sb_inner      = sidebar_inner_width();
 			CLAY(CLAY_ID("Sidebar"), {
 			                             .backgroundColor = {54, 58, 79, 255},
 			                             .clip            = {.vertical = true, .childOffset = sidebarOffset},
 			                             .layout          = {
 			                                 .sizing = {
 			                                     .height = CLAY_SIZING_GROW(0),
-			                                     .width  = CLAY_SIZING_FIXED(150),
+			                                     .width  = CLAY_SIZING_FIXED(NICETY_DOC_SIDEBAR_OUTER_W),
 			                                 },
 			                                 .layoutDirection = CLAY_TOP_TO_BOTTOM,
-			                                 .childGap        = 10,
+			                                 .childGap        = NICETY_DOC_SIDEBAR_INTER_GAP,
 			                                 .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
-			                                 .padding         = CLAY_PADDING_ALL(10),
+			                                 .padding         = CLAY_PADDING_ALL(NICETY_DOC_SIDEBAR_PAD),
 			                             },
 			                         })
 			{
-				for (size_t i = 0; i < doc.number_of_pages; i++)
+				for (i = 0; i < total_pages; i++)
 				{
-					Page current_page = doc.pages[i];
-					CLAY_AUTO_ID({
-					    .layout = {
-					        .sizing = {
-					            .width  = CLAY_SIZING_GROW(0),
-					            .height = CLAY_SIZING_GROW(0),
-					        },
-					        .layoutDirection = CLAY_TOP_TO_BOTTOM,
-					    },
-					    .aspectRatio = {(float) current_page.page_bitmap.width / current_page.page_bitmap.height},
-					    .image       = {
-					        .imageData = current_page.page_texture,
-					    },
-					    .border = {
-					        .width = CLAY_BORDER_ALL(1),
-					        .color = {138, 173, 244, 255},
-					    },
-					})
-					{}
+					float    layout_aspect = doc.page_layout_w[i] / doc.page_layout_h[i];
+					float    img_w         = sb_inner;
+					float    img_h         = img_w / layout_aspect;
+					Page    *p             = document_page_for_index(&doc, i);
+
+					if (p != NULL)
+					{
+						CLAY_AUTO_ID({
+						    .layout = {
+						        .sizing = {
+						            .width  = CLAY_SIZING_FIXED(img_w),
+						            .height = CLAY_SIZING_FIXED(img_h),
+						        },
+						        .layoutDirection = CLAY_TOP_TO_BOTTOM,
+						    },
+						    .aspectRatio = {(float) p->page_bitmap.width / (float) p->page_bitmap.height},
+						    .image       = {
+						        .imageData = p->page_texture,
+						    },
+						    .border = {
+						        .width = CLAY_BORDER_ALL(1),
+						        .color = {138, 173, 244, 255},
+						    },
+						})
+						{}
+					}
+					else
+					{
+						CLAY_AUTO_ID({
+						    .layout = {
+						        .sizing = {
+						            .width  = CLAY_SIZING_FIXED(img_w),
+						            .height = CLAY_SIZING_FIXED(img_h),
+						        },
+						        .layoutDirection = CLAY_TOP_TO_BOTTOM,
+						    },
+						    .backgroundColor = {40, 42, 58, 255},
+						    .border          = {
+						        .width = CLAY_BORDER_ALL(1),
+						        .color = {80, 85, 110, 255},
+						    },
+						})
+						{}
+					}
 				}
 			}
 
 			Clay_ScrollContainerData contentData   = Clay_GetScrollContainerData(CLAY_ID("Content"));
 			Clay_Vector2             contentOffset = (contentData.found && contentData.scrollPosition) ? *contentData.scrollPosition : (app->content_scroll_valid ? app->content_scroll_offset : (Clay_Vector2) {0, 0});
+			float                    content_inner_w =
+			    (contentData.found && contentData.scrollContainerDimensions.width > 2.0f * NICETY_DOC_CONTENT_PAD)
+			        ? (contentData.scrollContainerDimensions.width - 2.0f * NICETY_DOC_CONTENT_PAD)
+			        : 1.0f;
+
 			CLAY(CLAY_ID("Content"), {
 			                             .backgroundColor = {24, 25, 38, 255},
 			                             .clip            = {.vertical = true, .childOffset = contentOffset},
 			                             .layout          = {
 			                                 .layoutDirection = CLAY_TOP_TO_BOTTOM,
 			                                 .sizing          = grow_sizing,
-			                                 .padding         = CLAY_PADDING_ALL(20),
+			                                 .padding         = CLAY_PADDING_ALL(NICETY_DOC_CONTENT_PAD),
 			                                 .childAlignment  = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_TOP},
-			                                 .childGap        = 20,
+			                                 .childGap        = NICETY_DOC_CONTENT_INTER_PAGE_GAP,
 			                             },
 
 			                         })
 			{
-				for (size_t i = 0; i < doc.number_of_pages; i++)
+				for (i = 0; i < total_pages; i++)
 				{
-					Page current_page = doc.pages[i];
+					float    layout_aspect = doc.page_layout_w[i] / doc.page_layout_h[i];
+					Page    *p             = document_page_for_index(&doc, i);
 
 					Clay_Sizing pageSizing;
 					if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
 					{
-						float target_height = contentData.scrollContainerDimensions.height - 40;
-						float aspect_ratio  = (float) current_page.page_bitmap.width / current_page.page_bitmap.height;
+						float target_height = contentData.scrollContainerDimensions.height - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
+						float aspect_use    = p ? ((float) p->page_bitmap.width / (float) p->page_bitmap.height) : layout_aspect;
 						pageSizing          = (Clay_Sizing) {
-						    .width  = CLAY_SIZING_FIXED(target_height * aspect_ratio),
+						    .width  = CLAY_SIZING_FIXED(target_height * aspect_use),
 						    .height = CLAY_SIZING_FIXED(target_height),
 						};
 					}
@@ -167,20 +223,46 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 						};
 					}
 
-					CLAY_AUTO_ID({
-					    .layout = {
-					        .sizing = pageSizing,
-					    },
-					    .aspectRatio = {(float) current_page.page_bitmap.width / current_page.page_bitmap.height},
-					    .image       = {
-					        .imageData = current_page.page_texture,
-					    },
-					    .border = {
-					        .width = CLAY_BORDER_ALL(1),
-					        .color = {138, 173, 244, 255},
-					    },
-					})
-					{}
+					if (p != NULL)
+					{
+						CLAY_AUTO_ID({
+						    .layout = {
+						        .sizing = pageSizing,
+						    },
+						    .aspectRatio = {(float) p->page_bitmap.width / (float) p->page_bitmap.height},
+						    .image       = {
+						        .imageData = p->page_texture,
+						    },
+						    .border = {
+						        .width = CLAY_BORDER_ALL(1),
+						        .color = {138, 173, 244, 255},
+						    },
+						})
+						{}
+					}
+					else
+					{
+						float ph = content_inner_w / layout_aspect;
+						if (app->view_mode == VIEW_MODE_FIT_HEIGHT && contentData.found && contentData.scrollContainerDimensions.height > 40)
+						{
+							ph = contentData.scrollContainerDimensions.height - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
+						}
+						float pw = ph * layout_aspect;
+						CLAY_AUTO_ID({
+						    .layout = {
+						        .sizing = {
+						            .width  = CLAY_SIZING_FIXED(pw),
+						            .height = CLAY_SIZING_FIXED(ph),
+						        },
+						    },
+						    .backgroundColor = {40, 42, 58, 255},
+						    .border          = {
+						        .width = CLAY_BORDER_ALL(1),
+						        .color = {80, 85, 110, 255},
+						    },
+						})
+						{}
+					}
 				}
 			}
 		}
@@ -201,6 +283,12 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app)
 		{
 			app->content_scroll_offset = *contentData.scrollPosition;
 			app->content_scroll_valid  = true;
+		}
+		if (contentData.found)
+		{
+			app->content_viewport_width  = contentData.scrollContainerDimensions.width;
+			app->content_viewport_height = contentData.scrollContainerDimensions.height;
+			app->content_viewport_valid  = true;
 		}
 	}
 

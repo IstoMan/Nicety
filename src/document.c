@@ -32,7 +32,7 @@ static void page_init(Page *page, Application *core)
 	page_init_sdl(page, core);
 }
 
-DocumentContext *document_context_init(nicety_arena *document_arena, const char *file_path)
+DocumentContext *document_context_init(mem_arena *document_arena, const char *file_path)
 {
 	DocumentContext *session = PUSH_STRUCT(document_arena, DocumentContext);
 	session->document_arena  = document_arena;
@@ -83,6 +83,127 @@ void document_context_destroy(DocumentContext *session)
 	arena_clear(session->document_arena);
 }
 
+static float content_row_height(const Document *doc, size_t i, float inner_w, float viewport_h, bool fit_height_mode)
+{
+	float aspect = doc->page_layout_w[i] / doc->page_layout_h[i];
+	float img_h;
+	if (fit_height_mode && viewport_h > NICETY_DOC_FIT_HEIGHT_TOP_RESERVE)
+	{
+		img_h = viewport_h - NICETY_DOC_FIT_HEIGHT_TOP_RESERVE;
+	}
+	else
+	{
+		img_h = inner_w / aspect;
+	}
+	return img_h;
+}
+
+size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float viewport_w, float viewport_h, bool fit_height_mode)
+{
+	if (doc == NULL || doc->session == NULL || doc->page_layout_w == NULL || doc->session->total_pages == 0)
+	{
+		return 0;
+	}
+
+	size_t total = doc->session->total_pages;
+	float  inner_w = viewport_w - 2.0f * NICETY_DOC_CONTENT_PAD;
+	if (inner_w < 1.0f)
+	{
+		inner_w = 1.0f;
+	}
+
+	float y_target = scroll_y + viewport_h * 0.5f;
+	if (viewport_h <= 0.0f)
+	{
+		y_target = scroll_y;
+	}
+
+	float y = NICETY_DOC_CONTENT_PAD;
+	for (size_t i = 0; i < total; i++)
+	{
+		float rh = content_row_height(doc, i, inner_w, viewport_h, fit_height_mode);
+		if (y_target < y + rh)
+		{
+			return i;
+		}
+		y += rh;
+		if (i + 1 < total)
+		{
+			y += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+		}
+	}
+	return total - 1;
+}
+
+Page *document_page_for_index(const Document *doc, size_t page_index)
+{
+	if (doc == NULL || doc->pages == NULL)
+	{
+		return NULL;
+	}
+	for (size_t k = 0; k < doc->number_of_pages; k++)
+	{
+		if (doc->pages[k].index == page_index)
+		{
+			return &doc->pages[k];
+		}
+	}
+	return NULL;
+}
+
+int document_measure_pages(DocumentContext *session, Document *doc)
+{
+	if (session == NULL || doc == NULL)
+	{
+		return 1;
+	}
+
+	free(doc->page_layout_w);
+	free(doc->page_layout_h);
+	doc->page_layout_w = NULL;
+	doc->page_layout_h = NULL;
+
+	if (session->total_pages == 0)
+	{
+		return 0;
+	}
+
+	size_t n         = session->total_pages;
+	doc->page_layout_w = malloc(n * sizeof(float));
+	doc->page_layout_h = malloc(n * sizeof(float));
+	if (doc->page_layout_w == NULL || doc->page_layout_h == NULL)
+	{
+		free(doc->page_layout_w);
+		free(doc->page_layout_h);
+		doc->page_layout_w = NULL;
+		doc->page_layout_h = NULL;
+		return 1;
+	}
+
+	for (size_t i = 0; i < n; i++)
+	{
+		fz_page *page = fz_load_page(session->ctx, session->doc, (int) i);
+		fz_rect  bounds = fz_bound_page(session->ctx, page);
+		fz_irect ibox = fz_round_rect(bounds);
+		fz_drop_page(session->ctx, page);
+
+		float w = (float) (ibox.x1 - ibox.x0);
+		float h = (float) (ibox.y1 - ibox.y0);
+		if (w < 1.0f)
+		{
+			w = 1.0f;
+		}
+		if (h < 1.0f)
+		{
+			h = 1.0f;
+		}
+		doc->page_layout_w[i] = w;
+		doc->page_layout_h[i] = h;
+	}
+
+	return 0;
+}
+
 static void free_rendered_page_textures(Page *pages, size_t count)
 {
 	for (size_t i = 0; i < count; i++)
@@ -92,32 +213,50 @@ static void free_rendered_page_textures(Page *pages, size_t count)
 	free(pages);
 }
 
-int document_load_pages(DocumentContext *session, Application *app, size_t from, size_t till, const char *file_path,
-                        Document *out)
+int document_load_page_window(DocumentContext *session, Application *app, size_t center, size_t radius, const char *file_path,
+                              Document *doc)
 {
-	if (session == NULL || app == NULL || out == NULL || file_path == NULL)
+	if (session == NULL || app == NULL || doc == NULL || file_path == NULL)
 	{
 		return 1;
 	}
-
-	memset(out, 0, sizeof *out);
 
 	if (session->total_pages == 0)
 	{
-		out->session         = session;
-		out->file_path       = file_path;
-		out->number_of_pages = 0;
-		out->pages           = NULL;
+		doc->session         = session;
+		doc->file_path       = file_path;
+		doc->number_of_pages = 0;
+		doc->pages           = NULL;
+		doc->window_center   = 0;
 		return 0;
 	}
 
-	if (from > till || from >= session->total_pages || till >= session->total_pages)
+	if (center >= session->total_pages)
+	{
+		center = session->total_pages - 1;
+	}
+
+	size_t from = center > radius ? center - radius : 0;
+	size_t till = center + radius;
+	if (till >= session->total_pages)
+	{
+		till = session->total_pages - 1;
+	}
+
+	if (from > till)
 	{
 		return 1;
 	}
 
-	size_t       count = till - from + 1;
-	Page        *pages = calloc(count, sizeof *pages);
+	if (doc->pages != NULL)
+	{
+		free_rendered_page_textures(doc->pages, doc->number_of_pages);
+		doc->pages           = NULL;
+		doc->number_of_pages = 0;
+	}
+
+	size_t count = till - from + 1;
+	Page  *pages = calloc(count, sizeof *pages);
 	if (pages == NULL)
 	{
 		return 1;
@@ -158,8 +297,8 @@ int document_load_pages(DocumentContext *session, Application *app, size_t from,
 		page_bitmap.pixel_data    = pix->samples;
 		page_bitmap.rows_per_byte = pix->stride;
 
-		pages[k].index         = i;
-		pages[k].page_bitmap   = page_bitmap;
+		pages[k].index       = i;
+		pages[k].page_bitmap = page_bitmap;
 		page_init(&pages[k], app);
 		pages[k].page_bitmap.pixel_data = NULL;
 
@@ -169,10 +308,11 @@ int document_load_pages(DocumentContext *session, Application *app, size_t from,
 		page = NULL;
 	}
 
-	out->session         = session;
-	out->pages           = pages;
-	out->number_of_pages = count;
-	out->file_path       = file_path;
+	doc->session         = session;
+	doc->pages           = pages;
+	doc->number_of_pages = count;
+	doc->file_path       = file_path;
+	doc->window_center   = center;
 	return 0;
 }
 
@@ -183,11 +323,16 @@ void document_destroy(DocumentContext *session, Document *document)
 	{
 		return;
 	}
-	for (size_t i = 0; i < document->number_of_pages; i++)
+	if (document->pages != NULL)
 	{
-		SDL_DestroyTexture(document->pages[i].page_texture);
+		for (size_t i = 0; i < document->number_of_pages; i++)
+		{
+			SDL_DestroyTexture(document->pages[i].page_texture);
+		}
+		free(document->pages);
 	}
-	free(document->pages);
+	free(document->page_layout_w);
+	free(document->page_layout_h);
 	SDL_free((void *) document->file_path);
 	free(document);
 }

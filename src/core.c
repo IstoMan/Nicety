@@ -78,7 +78,7 @@ bool application_init(Application *core, WindowSpecs specs)
 		return false;
 	}
 
-	TTF_Font *font = TTF_OpenFont("resources/interface.ttf", 24);
+	TTF_Font *font = TTF_OpenFont("res/interface.ttf", 24);
 	if (!font)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to load font: %s", SDL_GetError());
@@ -126,7 +126,7 @@ void application_run(Application *core, App *app)
 			}
 		}
 
-		app_on_update(app);
+		app_on_update(app, core);
 		SDL_SetRenderDrawColor(core->renderer, 255, 255, 255, 255);
 		SDL_RenderClear(core->renderer);
 

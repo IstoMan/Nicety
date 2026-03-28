@@ -48,5 +48,8 @@ compile_commands.json
 Makefile
 _deps/
 
+# Profiling (binary; regenerate from perf record)
+perf*
+
 # Resources
 resources/

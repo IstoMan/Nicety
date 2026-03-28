@@ -18,8 +18,15 @@ static inline Clay_Dimensions SDL_MeasureText(Clay_StringSlice text, Clay_TextEl
 	TTF_Font **fonts = userData;
 	TTF_Font  *font  = fonts[config->fontId];
 	int        width, height;
+	static int   s_last_measure_font_id   = -1;
+	static float s_last_measure_font_size = -1.0f;
 
-	TTF_SetFontSize(font, config->fontSize);
+	if (s_last_measure_font_id != (int) config->fontId || s_last_measure_font_size != config->fontSize)
+	{
+		TTF_SetFontSize(font, config->fontSize);
+		s_last_measure_font_id   = (int) config->fontId;
+		s_last_measure_font_size = config->fontSize;
+	}
 	if (!TTF_GetStringSize(font, text.chars, text.length, &width, &height))
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to measure text: %s", SDL_GetError());

@@ -26,7 +26,9 @@ typedef struct
 typedef struct
 {
 	Bitmap page_bitmap;
-	void  *page_texture;        // texture data for any renderer (eg. SDL3, Raylib)
+	void  *page_texture;
+	Bitmap thumb_bitmap; /* pixels for aspect when thumb_texture is set; width/height 0 otherwise */
+	void  *thumb_texture;
 	size_t index;
 } Page;
 
@@ -48,6 +50,9 @@ typedef struct
 #define NICETY_DOC_SIDEBAR_PAD 10.0f
 #define NICETY_DOC_SIDEBAR_INTER_GAP 10.0f
 
+/* Max width (CSS-ish) for sidebar thumbnails; scaled from full page pixmap via fz_scale_pixmap. */
+#define NICETY_SIDEBAR_THUMB_MAX_PX 128.0f
+
 typedef struct
 {
 	DocumentContext *session;
@@ -61,6 +66,9 @@ typedef struct
 
 #define NICETY_PAGE_WINDOW_RADIUS 2
 
+/* Extra pixels above/below viewport when virtualizing scroll lists (Clay elements). */
+#define NICETY_UI_VIRTUAL_OVERSCAN_PX 400.0f
+
 DocumentContext *document_context_init(mem_arena *document_arena, const char *file_path);
 void             document_context_destroy(DocumentContext *session);
 
@@ -71,5 +79,16 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float viewport_w, float viewport_h, bool fit_height_mode);
 
 Page *document_page_for_index(const Document *doc, size_t page_index);
+
+/*
+ * Visible page index range for virtualized sidebar/content lists. Spacers preserve total scroll
+ * extent: top spacer + rows [lo..hi] + bottom spacer matches full non-virtual layout height.
+ */
+void document_visible_sidebar_range(const Document *doc, float sb_inner, float scroll_y, float viewport_h, size_t *out_lo,
+                                    size_t *out_hi, float *out_spacer_top, float *out_spacer_bottom);
+
+void document_visible_content_range(const Document *doc, float content_inner_w, float scroll_y, float viewport_w, float viewport_h,
+                                    bool fit_height_mode, size_t *out_lo, size_t *out_hi, float *out_spacer_top,
+                                    float *out_spacer_bottom);
 
 void document_destroy(DocumentContext *session, Document *document);

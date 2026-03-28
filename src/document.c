@@ -27,6 +27,33 @@ static void page_init_sdl(Page *page, Application *app)
 	page->page_texture = texture;
 }
 
+static void page_init_thumb_sdl(Page *page, Application *app)
+{
+	SDL_Surface *surface = NULL;
+	SDL_Texture *texture = NULL;
+	int          format;
+
+	if (page->thumb_bitmap.width == 0 || page->thumb_bitmap.pixel_data == NULL)
+	{
+		return;
+	}
+
+	if (page->thumb_bitmap.format == COLOR_FORMAT_RGB)
+	{
+		format = SDL_PIXELFORMAT_RGB24;
+	}
+	else
+	{
+		format = SDL_PIXELFORMAT_RGBA32;
+	}
+	surface = SDL_CreateSurfaceFrom(page->thumb_bitmap.width, page->thumb_bitmap.height, format, page->thumb_bitmap.pixel_data,
+	                                page->thumb_bitmap.rows_per_byte);
+	texture = SDL_CreateTextureFromSurface(app->renderer, surface);
+
+	SDL_DestroySurface(surface);
+	page->thumb_texture = texture;
+}
+
 static void page_init(Page *page, Application *core)
 {
 	page_init_sdl(page, core);
@@ -140,6 +167,247 @@ size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float view
 	return total - 1;
 }
 
+static float document_sidebar_row_height(const Document *doc, size_t i, float sb_inner)
+{
+	float layout_aspect = doc->page_layout_w[i] / doc->page_layout_h[i];
+	return sb_inner / layout_aspect;
+}
+
+void document_visible_sidebar_range(const Document *doc, float sb_inner, float scroll_y, float viewport_h, size_t *out_lo,
+                                    size_t *out_hi, float *out_spacer_top, float *out_spacer_bottom)
+{
+	size_t n;
+
+	if (doc == NULL || doc->page_layout_w == NULL || doc->session == NULL)
+	{
+		*out_lo            = 0;
+		*out_hi            = 0;
+		*out_spacer_top    = 0.0f;
+		*out_spacer_bottom = 0.0f;
+		return;
+	}
+
+	n = doc->session->total_pages;
+	if (n == 0)
+	{
+		*out_lo            = 0;
+		*out_hi            = 0;
+		*out_spacer_top    = 0.0f;
+		*out_spacer_bottom = 0.0f;
+		return;
+	}
+
+	if (viewport_h <= 1.0f)
+	{
+		*out_lo            = 0;
+		*out_hi            = n - 1;
+		*out_spacer_top    = 0.0f;
+		*out_spacer_bottom = 0.0f;
+		return;
+	}
+
+	{
+		float top = -scroll_y;
+		float bot = top + viewport_h;
+		float o   = NICETY_UI_VIRTUAL_OVERSCAN_PX;
+		float y   = NICETY_DOC_SIDEBAR_PAD;
+		size_t lo = n;
+		size_t hi = 0;
+		size_t i;
+
+		for (i = 0; i < n; i++)
+		{
+			float h     = document_sidebar_row_height(doc, i, sb_inner);
+			float y_next = y + h;
+
+			if (y_next > top - o && y < bot + o)
+			{
+				if (lo == n)
+				{
+					lo = i;
+				}
+				hi = i;
+			}
+			y = y_next;
+			if (i + 1 < n)
+			{
+				y += NICETY_DOC_SIDEBAR_INTER_GAP;
+			}
+		}
+
+		if (lo == n)
+		{
+			lo = 0;
+			hi = n - 1;
+		}
+
+		*out_lo = lo;
+		*out_hi = hi;
+
+		{
+			float y_top_row_lo = NICETY_DOC_SIDEBAR_PAD;
+			size_t j;
+
+			for (j = 0; j < lo; j++)
+			{
+				y_top_row_lo += document_sidebar_row_height(doc, j, sb_inner);
+				if (j + 1 < n)
+				{
+					y_top_row_lo += NICETY_DOC_SIDEBAR_INTER_GAP;
+				}
+			}
+			*out_spacer_top = y_top_row_lo - NICETY_DOC_SIDEBAR_PAD;
+		}
+
+		{
+			float total_h = NICETY_DOC_SIDEBAR_PAD;
+			size_t j;
+
+			for (j = 0; j < n; j++)
+			{
+				total_h += document_sidebar_row_height(doc, j, sb_inner);
+				if (j + 1 < n)
+				{
+					total_h += NICETY_DOC_SIDEBAR_INTER_GAP;
+				}
+			}
+			total_h += NICETY_DOC_SIDEBAR_PAD;
+
+			{
+				float y_after_hi = NICETY_DOC_SIDEBAR_PAD;
+				for (j = 0; j <= hi; j++)
+				{
+					if (j > 0)
+					{
+						y_after_hi += NICETY_DOC_SIDEBAR_INTER_GAP;
+					}
+					y_after_hi += document_sidebar_row_height(doc, j, sb_inner);
+				}
+				*out_spacer_bottom = total_h - y_after_hi;
+			}
+		}
+	}
+}
+
+void document_visible_content_range(const Document *doc, float content_inner_w, float scroll_y, float viewport_w, float viewport_h,
+                                    bool fit_height_mode, size_t *out_lo, size_t *out_hi, float *out_spacer_top,
+                                    float *out_spacer_bottom)
+{
+	size_t n;
+
+	(void) viewport_w;
+
+	if (doc == NULL || doc->page_layout_w == NULL || doc->session == NULL)
+	{
+		*out_lo            = 0;
+		*out_hi            = 0;
+		*out_spacer_top    = 0.0f;
+		*out_spacer_bottom = 0.0f;
+		return;
+	}
+
+	n = doc->session->total_pages;
+	if (n == 0)
+	{
+		*out_lo            = 0;
+		*out_hi            = 0;
+		*out_spacer_top    = 0.0f;
+		*out_spacer_bottom = 0.0f;
+		return;
+	}
+
+	if (viewport_h <= 1.0f)
+	{
+		*out_lo            = 0;
+		*out_hi            = n - 1;
+		*out_spacer_top    = 0.0f;
+		*out_spacer_bottom = 0.0f;
+		return;
+	}
+
+	{
+		float top = -scroll_y;
+		float bot = top + viewport_h;
+		float o   = NICETY_UI_VIRTUAL_OVERSCAN_PX;
+		float y   = NICETY_DOC_CONTENT_PAD;
+		size_t lo = n;
+		size_t hi = 0;
+		size_t i;
+
+		for (i = 0; i < n; i++)
+		{
+			float h      = content_row_height(doc, i, content_inner_w, viewport_h, fit_height_mode);
+			float y_next = y + h;
+
+			if (y_next > top - o && y < bot + o)
+			{
+				if (lo == n)
+				{
+					lo = i;
+				}
+				hi = i;
+			}
+			y = y_next;
+			if (i + 1 < n)
+			{
+				y += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+			}
+		}
+
+		if (lo == n)
+		{
+			lo = 0;
+			hi = n - 1;
+		}
+
+		*out_lo = lo;
+		*out_hi = hi;
+
+		{
+			float y_top_row_lo = NICETY_DOC_CONTENT_PAD;
+			size_t j;
+
+			for (j = 0; j < lo; j++)
+			{
+				y_top_row_lo += content_row_height(doc, j, content_inner_w, viewport_h, fit_height_mode);
+				if (j + 1 < n)
+				{
+					y_top_row_lo += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+				}
+			}
+			*out_spacer_top = y_top_row_lo - NICETY_DOC_CONTENT_PAD;
+		}
+
+		{
+			float total_h = NICETY_DOC_CONTENT_PAD;
+			size_t j;
+
+			for (j = 0; j < n; j++)
+			{
+				total_h += content_row_height(doc, j, content_inner_w, viewport_h, fit_height_mode);
+				if (j + 1 < n)
+				{
+					total_h += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+				}
+			}
+			total_h += NICETY_DOC_CONTENT_PAD;
+
+			{
+				float y_after_hi = NICETY_DOC_CONTENT_PAD;
+				for (j = 0; j <= hi; j++)
+				{
+					if (j > 0)
+					{
+						y_after_hi += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+					}
+					y_after_hi += content_row_height(doc, j, content_inner_w, viewport_h, fit_height_mode);
+				}
+				*out_spacer_bottom = total_h - y_after_hi;
+			}
+		}
+	}
+}
+
 Page *document_page_for_index(const Document *doc, size_t page_index)
 {
 	if (doc == NULL || doc->pages == NULL)
@@ -213,6 +481,10 @@ static void free_rendered_page_textures(Page *pages, size_t count)
 {
 	for (size_t i = 0; i < count; i++)
 	{
+		if (pages[i].thumb_texture != NULL)
+		{
+			SDL_DestroyTexture(pages[i].thumb_texture);
+		}
 		SDL_DestroyTexture(pages[i].page_texture);
 	}
 	free(pages);
@@ -307,6 +579,39 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 		page_init(&pages[k], app);
 		pages[k].page_bitmap.pixel_data = NULL;
 
+		pages[k].thumb_texture = NULL;
+		memset(&pages[k].thumb_bitmap, 0, sizeof pages[k].thumb_bitmap);
+		if (pix->w > 0)
+		{
+			float    tw   = NICETY_SIDEBAR_THUMB_MAX_PX;
+			float    th   = tw * (float) pix->h / (float) pix->w;
+			fz_pixmap *tpix = fz_scale_pixmap(session->ctx, pix, 0.0f, 0.0f, tw, th, NULL);
+
+			if (tpix != NULL)
+			{
+				if (tpix->n == 3 || tpix->n == 4)
+				{
+					Bitmap thumb_bm;
+					u32    tf = tpix->n == 3 ? COLOR_FORMAT_RGB : COLOR_FORMAT_RGBA;
+
+					thumb_bm.width         = tpix->w;
+					thumb_bm.height        = tpix->h;
+					thumb_bm.format        = tf;
+					thumb_bm.pixel_data    = tpix->samples;
+					thumb_bm.rows_per_byte = tpix->stride;
+					pages[k].thumb_bitmap  = thumb_bm;
+					page_init_thumb_sdl(&pages[k], app);
+					pages[k].thumb_bitmap.pixel_data = NULL;
+					fz_drop_pixmap(session->ctx, tpix);
+				}
+				else
+				{
+					fprintf(stderr, "Unsupported thumbnail pixel format\n");
+					fz_drop_pixmap(session->ctx, tpix);
+				}
+			}
+		}
+
 		fz_drop_pixmap(session->ctx, pix);
 		fz_drop_page(session->ctx, page);
 		pix  = NULL;
@@ -332,6 +637,10 @@ void document_destroy(DocumentContext *session, Document *document)
 	{
 		for (size_t i = 0; i < document->number_of_pages; i++)
 		{
+			if (document->pages[i].thumb_texture != NULL)
+			{
+				SDL_DestroyTexture(document->pages[i].thumb_texture);
+			}
 			SDL_DestroyTexture(document->pages[i].page_texture);
 		}
 		free(document->pages);

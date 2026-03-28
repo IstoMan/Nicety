@@ -78,6 +78,13 @@ int document_load_page_window(DocumentContext *session, Application *app, size_t
 
 size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float viewport_w, float viewport_h, bool fit_height_mode);
 
+/*
+ * After toggling fit-height vs fill, row heights change; map scroll so the viewport center stays at the same
+ * fraction along the same page (matches document_page_at_scroll_y centering semantics).
+ */
+bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_in, float viewport_w, float viewport_h,
+                                           bool from_fit_height, bool to_fit_height, float *scroll_y_out);
+
 Page *document_page_for_index(const Document *doc, size_t page_index);
 
 /*

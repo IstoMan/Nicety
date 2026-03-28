@@ -167,6 +167,136 @@ size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float view
 	return total - 1;
 }
 
+bool document_remap_scroll_y_for_view_mode(const Document *doc, float scroll_y_in, float viewport_w, float viewport_h,
+                                           bool from_fit_height, bool to_fit_height, float *scroll_y_out)
+{
+	size_t n;
+	float  inner_w;
+	float  y_target;
+	size_t page;
+	float  y_start_old;
+	float  rh_old;
+	float  frac;
+	float  y_start_new;
+	float  rh_new;
+	float  y_target_new;
+	float  scroll_out;
+	float  total_h;
+	float  max_neg;
+
+	if (scroll_y_out == NULL || doc == NULL || doc->session == NULL || doc->page_layout_w == NULL || doc->session->total_pages == 0)
+	{
+		return false;
+	}
+
+	if (from_fit_height == to_fit_height)
+	{
+		*scroll_y_out = scroll_y_in;
+		return true;
+	}
+
+	n = doc->session->total_pages;
+
+	inner_w = viewport_w - 2.0f * NICETY_DOC_CONTENT_PAD;
+	if (inner_w < 1.0f)
+	{
+		inner_w = 1.0f;
+	}
+
+	page = document_page_at_scroll_y(doc, scroll_y_in, viewport_w, viewport_h, from_fit_height);
+
+	if (viewport_h <= 0.0f)
+	{
+		y_target = -scroll_y_in;
+	}
+	else
+	{
+		y_target = -scroll_y_in + viewport_h * 0.5f;
+	}
+
+	y_start_old = NICETY_DOC_CONTENT_PAD;
+	for (size_t i = 0; i < page; i++)
+	{
+		y_start_old += content_row_height(doc, i, inner_w, viewport_h, from_fit_height);
+		if (i + 1 < n)
+		{
+			y_start_old += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+		}
+	}
+
+	rh_old = content_row_height(doc, page, inner_w, viewport_h, from_fit_height);
+	frac   = 0.0f;
+	if (rh_old > 1e-6f)
+	{
+		frac = (y_target - y_start_old) / rh_old;
+		if (frac < 0.0f)
+		{
+			frac = 0.0f;
+		}
+		else if (frac > 1.0f)
+		{
+			frac = 1.0f;
+		}
+	}
+
+	y_start_new = NICETY_DOC_CONTENT_PAD;
+	for (size_t i = 0; i < page; i++)
+	{
+		y_start_new += content_row_height(doc, i, inner_w, viewport_h, to_fit_height);
+		if (i + 1 < n)
+		{
+			y_start_new += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+		}
+	}
+
+	rh_new         = content_row_height(doc, page, inner_w, viewport_h, to_fit_height);
+	y_target_new   = y_start_new + frac * rh_new;
+
+	if (viewport_h <= 0.0f)
+	{
+		scroll_out = -y_target_new;
+	}
+	else
+	{
+		scroll_out = -(y_target_new - viewport_h * 0.5f);
+	}
+
+	total_h = NICETY_DOC_CONTENT_PAD;
+	for (size_t i = 0; i < n; i++)
+	{
+		total_h += content_row_height(doc, i, inner_w, viewport_h, to_fit_height);
+		if (i + 1 < n)
+		{
+			total_h += NICETY_DOC_CONTENT_INTER_PAGE_GAP;
+		}
+	}
+	total_h += NICETY_DOC_CONTENT_PAD;
+
+	if (viewport_h > 1.0f && total_h <= viewport_h)
+	{
+		*scroll_y_out = 0.0f;
+		return true;
+	}
+
+	max_neg = 0.0f;
+	if (viewport_h > 1.0f && total_h > viewport_h)
+	{
+		max_neg = -(total_h - viewport_h);
+	}
+
+	if (scroll_out > 0.0f)
+	{
+		scroll_out = 0.0f;
+	}
+	if (scroll_out < max_neg)
+	{
+		scroll_out = max_neg;
+	}
+
+	*scroll_y_out = scroll_out;
+	return true;
+}
+
 static float document_sidebar_row_height(const Document *doc, size_t i, float sb_inner)
 {
 	float layout_aspect = doc->page_layout_w[i] / doc->page_layout_h[i];

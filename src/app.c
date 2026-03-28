@@ -104,7 +104,25 @@ static int app_open_pdf(App *self, Application *core, char *file_path_owned)
 
 static void app_toggle_view_mode(App *self)
 {
-	self->view_mode = self->view_mode == VIEW_MODE_FILL ? VIEW_MODE_FIT_HEIGHT : VIEW_MODE_FILL;
+	bool old_fit = (self->view_mode == VIEW_MODE_FIT_HEIGHT);
+
+	if (self->document != NULL && self->document->session != NULL && self->document->session->total_pages > 0
+	    && self->content_scroll_valid && self->content_viewport_valid && self->content_viewport_width > 1.0f)
+	{
+		float new_y;
+		if (document_remap_scroll_y_for_view_mode(self->document, self->content_scroll_offset.y, self->content_viewport_width,
+		                                          self->content_viewport_height, old_fit, !old_fit, &new_y))
+		{
+			self->content_scroll_offset.y = new_y;
+			Clay_ScrollContainerData cd = Clay_GetScrollContainerData(CLAY_ID("Content"));
+			if (cd.found && cd.scrollPosition)
+			{
+				cd.scrollPosition->y = new_y;
+			}
+		}
+	}
+
+	self->view_mode = old_fit ? VIEW_MODE_FILL : VIEW_MODE_FIT_HEIGHT;
 }
 
 void app_init(App *self)

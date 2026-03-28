@@ -311,7 +311,9 @@ static bool path_has_pdf_extension(const char *path)
 
 static void app_close_document(App *self)
 {
-	self->sidebar_viewport_valid = false;
+	self->sidebar_viewport_valid                 = false;
+	self->content_sidebar_link_seeded            = false;
+	self->content_scroll_y_sidebar_link_baseline = 0.0f;
 	if (self->document != NULL)
 	{
 		self->doc_load_token++;

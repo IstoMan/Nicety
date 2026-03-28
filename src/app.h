@@ -40,6 +40,9 @@ typedef struct App
 	float                   sidebar_viewport_height;
 	bool                    sidebar_viewport_valid;
 	bool                    sidebar_visible;
+	/* One-way content→sidebar: baseline is last content Y after we synced sidebar; seeded resets on close. */
+	float                   content_scroll_y_sidebar_link_baseline;
+	bool                    content_sidebar_link_seeded;
 
 	/* Async page window raster (background thread); doc_load_token invalidates in-flight work on close/reopen. */
 	u64                        doc_load_token;

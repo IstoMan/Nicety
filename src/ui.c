@@ -11,7 +11,8 @@
  * Clay_EndLayout. ui_doc_capture_scroll_state runs after Clay_EndLayout.
  */
 
-static const int FONT_ID_0 = 0;
+static const int   FONT_ID_0 = 0;
+static const float NICETY_SIDEBAR_LINK_EPS = 0.5f;
 
 static Clay_Color  base_color  = {36, 39, 58, 255};
 static Clay_Sizing grow_sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)};
@@ -516,14 +517,25 @@ Clay_RenderCommandArray ui_document_view(const Document doc, App *app, float lay
 				float lane_h   = (sidebarData.found && sidebarData.scrollContainerDimensions.height > 1.0f)
 				                     ? sidebarData.scrollContainerDimensions.height
 				                     : pred_h;
-				float sb_y;
-				if (document_sidebar_scroll_y_from_content_scroll_y(&doc, contentOffset.y, content_viewport_w, pred_h, fit, sb_inner, lane_h, &sb_y))
+				bool content_moved = !app->content_sidebar_link_seeded ||
+				                     (fabsf(contentOffset.y - app->content_scroll_y_sidebar_link_baseline) > NICETY_SIDEBAR_LINK_EPS);
+				if (content_moved)
 				{
-					sidebarOffset = (Clay_Vector2) {0.0f, sb_y};
-					if (sidebarData.found && sidebarData.scrollPosition)
+					float sb_y;
+					if (document_sidebar_scroll_y_from_content_scroll_y(&doc, contentOffset.y, content_viewport_w, pred_h, fit, sb_inner, lane_h, &sb_y))
 					{
-						sidebarData.scrollPosition->y = sb_y;
+						sidebarOffset = (Clay_Vector2) {0.0f, sb_y};
+						if (sidebarData.found && sidebarData.scrollPosition)
+						{
+							sidebarData.scrollPosition->y = sb_y;
+						}
 					}
+					else
+					{
+						sidebarOffset = ui_scroll_persist(sidebarData, app->sidebar_scroll_valid, app->sidebar_scroll_offset);
+					}
+					app->content_scroll_y_sidebar_link_baseline = contentOffset.y;
+					app->content_sidebar_link_seeded            = true;
 				}
 				else
 				{

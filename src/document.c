@@ -112,10 +112,15 @@ size_t document_page_at_scroll_y(const Document *doc, float scroll_y, float view
 		inner_w = 1.0f;
 	}
 
-	float y_target = scroll_y + viewport_h * 0.5f;
+	/* Clay scroll offsets are <= 0 when scrolled down; content Y grows downward from the top. */
+	float y_target;
 	if (viewport_h <= 0.0f)
 	{
-		y_target = scroll_y;
+		y_target = -scroll_y;
+	}
+	else
+	{
+		y_target = -scroll_y + viewport_h * 0.5f;
 	}
 
 	float y = NICETY_DOC_CONTENT_PAD;
